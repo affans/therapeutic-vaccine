@@ -1,5 +1,3 @@
-
-
 module thvaccine
     using Distributions
     using Parameters
@@ -10,42 +8,39 @@ module thvaccine
   
     const P = ModelParameters()
     const humans = Array{Human}(undef, P.num_of_humans)
-    
+    #const runsummary = Dict{String, Int64}()
+    function modelinfo()        
+        ans = length(findall(x -> x.sex == MALE, humans))
+        println("Number of MALE: $ans")
+        ans = length(findall(x -> x.sex == FEMALE, humans))
+        println("Number of FEMALE: $ans")
+        ans = length(findall(x -> x.partner > 0, humans))
+        println("Number of people with partners: $ans (distinct pairs: $(div(ans, 2)))")
+        ans = length(findall(x -> x.partner > 0 && x.married == true, humans))
+        println("Number of people married: $ans (distinct pairs: $(div(ans, 2)))")
 
-    function modelinfo()
-        @info "FEMALE = 0, MALE = 1"
-        ans = length(findall(x -> x.sex == 1, humans))
-        @info "Number of MALE" ans
-        ans = length(findall(x -> x.sex == 0, humans))
-        @info "Number of FEMALE" ans
-
-        ans = length(findall(x -> x.partner > 0, humans))/2
-        @info "Number of people with partners" ans
     end
 
+    main() = main(1)
     function main(simnumber::Int64) 
         #Random.seed!(simnumber)        
-        init_humans()
-        @info "Population initialized"        
-    end
-
-    function calculatesexfrequency(age, sex)
-        ## this function calculates sex frequency based on the relevant distribution distribution
-        ag = get_age_group(age)  
-        mfd, wfd = distribution_sexfrequency()  ## get the distributions
-        rn = rand() ## roll a dice
-        sexfreq = 0
-        if sex == MALE 
-            sexfreq = findfirst(x -> rn <= x, mfd[ag]) - 1   #if male, use the male distribution
-        else 
-            sexfreq = findfirst(x -> rn <= x, wfd[ag]) - 1   #if female, use the female distribution
-        end
-        return sexfreq
+        init_humans(); @info "Population initialized"          
+        pair_everyone(); @info "Population paired up"
+        marry(); @info "Pairs married"              
     end
     
     function pair_everyone()
         # function assigns partners to non-married people in each age-group
         # an individual is only partnered with someone in their own age group
+
+        # TO DO: add logic in for keeping a certain percentage of partners fixed on top of the marriage.
+        # for example, there is a 20% chance the partners remain the same. 
+
+        # before starting, reset everyone's (NON MARRIED) partner. This is important for the "reshuffling" every 6 months.        
+        reset = findall(x -> x.partner > 0 && x.married == false, humans)
+        @debug "Resetting partners for $(length(reset)) individuals"
+        map(x -> humans[x].partner = 0, reset)
+
         for ag in (1, 2, 3, 4)
             ## get the indices of all the eligible males and females
             malein = findall(x -> x.sex == MALE && get_age_group(x.age) == ag && x.married == false, humans)
@@ -75,6 +70,22 @@ module thvaccine
                 ctr += 1
             end
         end
+    end
+
+    function visualpairs()
+        ## allows to run a scatter plot to see the pairings. 
+        totalpartners = findall(x -> x.partner > 0, humans)
+        mh = Vector{Int64}(undef, 0)
+        fh = Vector{Int64}(undef, 0)
+        
+        for p in totalpartners
+            if humans[p].sex == MALE 
+                push!(mh, humans[p].partner)                                   
+            else 
+                push!(fh, humans[p].partner)                                   
+            end             
+        end
+        return mh, fh
     end
 
 end # module

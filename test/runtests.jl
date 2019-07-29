@@ -32,13 +32,23 @@ end
         h.married == true && humans[h.partner].married != true
     end
     @test length(a4) == 0
- 
-    ## extreme test. If we keep running the function over and over again, then eventually everyone should be married
-    for i = 1:10
-        thvaccine.marry()
-    end
-    a5 = findall(x -> x.married == true, humans)
-    @test length(a5) == length(humans)
+
+    ## check if someone is married, make sure they have a partner. 
+    a = findall(x -> x.married == true && x.partner == 0, humans)
+    @test length(a) == 0
+
+    ## check that after a re-shuffle, the married pairs remain the same. 
+    a = findall(x -> x.married == true, humans)
+    thvaccine.pair_everyone()
+    b = findall(x -> x.married == true, humans)
+    @test a == b
+
+    ## check that after a re-shuffle, the married pairs remain the same. 
+    ## this is the second test.
+    a = findall(x -> x.married == true, humans)
+    thvaccine.pair_everyone()
+    b = findall(x -> x.married == true, humans)
+    @test a == b
 end
 
 @testset "Misc/Generic Functions" begin

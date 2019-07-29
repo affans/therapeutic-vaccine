@@ -11,6 +11,20 @@
     return dist_men, dist_women
 end
 
+function calculatesexfrequency(age, sex)
+    ## this function calculates sex frequency based on the relevant distribution distribution
+    ag = get_age_group(age)  
+    mfd, wfd = distribution_sexfrequency()  ## get the distributions
+    rn = rand() ## roll a dice
+    sexfreq = 0
+    if sex == MALE 
+        sexfreq = findfirst(x -> rn <= x, mfd[ag]) - 1   #if male, use the male distribution
+    else 
+        sexfreq = findfirst(x -> rn <= x, wfd[ag]) - 1   #if female, use the female distribution
+    end
+    return sexfreq
+end
+
 function get_age_group(age::Int64)
     ## this is mainly used for sex frequency 
     if age >= 15 && age < 25
