@@ -55,4 +55,8 @@ end
     ## test the age groups.. should be from 1-4
     a = [thvaccine.get_age_group(humans[i].age) for i = 1:P.num_of_humans]
     @test length(findall(x -> x ∉ (1, 2, 3, 4), a)) == 0
+
+    ## test model parameters -- distribution of ethnicities
+    c = [P.eth_white, P.eth_black, P.eth_asian, P.eth_hispanic]
+    @test sum(c) == 1
 end
