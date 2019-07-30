@@ -39,7 +39,7 @@ function get_age_group(age::Int64)
     return agegroup
 end
 
-function pair_everyone()
+function partnerup()
     # function assigns partners to non-married people in each age-group
     # an individual is only partnered with someone in their own age group
     
@@ -79,18 +79,3 @@ function marry()
     end
 end
 
-function visualpairs()
-    ## allows to run a scatter plot to see the pairings. 
-    totalpartners = findall(x -> x.partner > 0, humans)
-    mh = Vector{Int64}(undef, 0)
-    fh = Vector{Int64}(undef, 0)
-    
-    for p in totalpartners
-        if humans[p].sex == MALE 
-            push!(mh, humans[p].partner)                                   
-        else 
-            push!(fh, humans[p].partner)                                   
-        end             
-    end
-    return mh, fh
-end

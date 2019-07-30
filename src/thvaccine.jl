@@ -28,5 +28,7 @@ module thvaccine
         pair_everyone(); @info "Population paired up"
         marry(); @info "Pairs married"              
     end
+
+    function 
     
 end # module
