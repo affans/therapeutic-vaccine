@@ -13,6 +13,7 @@ module thvaccine
     const humans = Array{Human}(undef, P.num_of_humans)
     const gridsize = P.num_of_humans
 
+
     #Base.show(io::IO, ::Type{Human}) = print(io, "this is a Human type")
     function Base.show(io::IO, ::MIME"text/plain", z::Human)
        dump(z)
@@ -44,11 +45,15 @@ module thvaccine
         #   -> marriage 
         # 2) distribute the initial disease throughout the population.
 
+        init_population()
+        partnerup()
+        marry()
+
         # time loop 
         for i = 1:P.sim_time
             ## main simulation loop started. 
-
-            
+            age()
+            partnerup()
         end 
     end
 
@@ -57,6 +62,7 @@ module thvaccine
             humans[i] = Human()   ## create an empty human
             init_human(humans[i]) ## initialize the human
         end
+        @debug "population initialized"
     end
 
     function age()
@@ -80,6 +86,16 @@ module thvaccine
             if h.married == true 
                 init_human(humans[h.partner])
                 humans[h.partner].age = 15   
+
+                ## find another couple to marry. 
+                t = findfirst(x -> x.partner > 0 && x.married == false && x.age > 19, humans)
+                if t != nothing
+                    # ofcourse humans[t] is not married (the filter above). But just double check if the partner of humans[t] is accidently married. this should never happen.
+                    humans[humans[t].partner].married == true && error("bug: one partner is married, the other is not")
+                    humans[t].married = true 
+                    humans[humans[t].partner].married = true
+                end
+
             else 
                 humans[h.partner].partner = 0 
                 humans[h.partner].married = 0
@@ -96,15 +112,19 @@ module thvaccine
         # an individual is only partnered with someone in their own age group
         
         # before starting, reset everyone's (NON MARRIED) partner. This is important for the "reshuffling" every 6 months.        
+        ## NOT IMPLEMENTED: do some partners tend to stay with each other during the year?
         reset = findall(x -> x.partner > 0 && x.married == false, humans)
         @debug "Resetting partners for $(length(reset)) individuals"
         map(x -> humans[x].partner = 0, reset)
 
         for eg in (WHITE, BLACK, ASIAN, HIS)
-            for ag in (1, 2, 3, 4)
-                ## get the indices of all the eligible males and females
-                malein = findall(x -> x.sex == MALE && get_age_group(x.age) == ag && x.married == false && x.grp == eg, humans)
-                femalein = findall(x -> x.sex == FEMALE && get_age_group(x.age) == ag && x.married == false && x.grp == eg, humans)
+            for ag in (15:19, 20:24, 25:29, 30:34, 35:39, 40:44, 45:49)
+                ## get the indices of all the eligible males and females. 
+                ## filters: sex, age, ethnic group. 
+                ## married = false makes sure we don't reassign partners to married individuals 
+                ## NOT IMPLEMENTED: partner > 0 makes sure we don't reassign some of the partners (out of those not married)
+                malein = findall(x -> x.sex == MALE && x.age ∈ ag && x.married == false && x.grp == eg, humans)
+                femalein = findall(x -> x.sex == FEMALE && x.age ∈ ag && x.married == false && x.grp == eg, humans)
     
                 shuffle!(malein)
                 shuffle!(femalein)
@@ -123,8 +143,7 @@ module thvaccine
 
     function marry()       
         ## create issue. People only the age of 19+ are married. 
-
-        h = findall(x -> x.partner > 0 && x.married == false && x.age >= 19, humans)
+        h = findall(x -> x.partner > 0 && x.married == false && x.age > 19, humans)
         howmany = Int(round(length(h)*P.pct_married))
         @debug "Number of people getting married" howmany
         ctr = 1
@@ -140,6 +159,4 @@ module thvaccine
         @debug "Number of people married: $ans (distinct pairs: $(div(ans, 2)))"
     end
 
-    
-    
 end # module

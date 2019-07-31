@@ -19,11 +19,11 @@ end
 
     # check if they are all within their age groups
     a2 = findall(allpartners) do h
-        age1 = thvaccine.get_age_group(humans[h].age)
-        age2 = thvaccine.get_age_group(humans[humans[h].partner].age)
-        age1 != age2
+        age1 = humans[h].age
+        age2 = humans[humans[h].partner].age
+        diffage = abs(age1 - age2)
     end
-    @test length(a2) == 0
+    @test diffage <= 4
 
     # check if they are all within their ethnicites/subgroups
     a2 = findall(allpartners) do x
@@ -51,14 +51,14 @@ end
     @test length(a5) == 0
 
     ## check if someone is married, make sure they have a partner.
-    a = findall(x -> x.married == true && x.partner == 0, humans)
-    @test length(a) == 0
+    a6 = findall(x -> x.married == true && x.partner == 0, humans)
+    @test length(a6) == 0
 
     ## go through all humans. If human is married, check if their partner is also married
-    a = findall(humans) do h
+    a7 = findall(humans) do h
         h.married == true && humans[h.partner].married != true
     end
-    @test length(a) == 0
+    @test length(a7) == 0
 
     ## check that after a re-shuffle, the married pairs remain the same.
     thvaccine.init_population()
@@ -76,6 +76,7 @@ end
     thvaccine.marry()
     id = findfirst(x -> x.married == true && x.age == 49, humans) ## in the test, this could return 0 but low chance
     partner = humans[id].partner
+    totalbefore = findall(x -> x.married == true, humans)
     if id != nothing
         thvaccine.exit_population(humans[id])
         @test humans[id].partner == 0
@@ -83,11 +84,12 @@ end
         @test humans[id].age == 15
         @test humans[partner].partner == 0
         @test humans[partner].married == 0
-        @test humans[partner].age == 15
+        @test humans[partner].age == 15       
     else 
         println("could not test `exit_population` due to stochastic effects")
     end
-
+    totalafter = findall(x -> x.married == true, humans)
+    @test length(totalafter) == length(totalbefore)
 end
 
 @testset "Misc/Generic Functions" begin
