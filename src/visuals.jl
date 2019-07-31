@@ -14,3 +14,4 @@ function get_partnerships()
     end
     return mh, fh
 end
+

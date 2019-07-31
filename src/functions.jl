@@ -35,47 +35,9 @@ function get_age_group(age::Int64)
         agegroup = 3
     elseif age >= 40 && age < 50 
         agegroup = 4 
+    else 
+        error("in `get_age_group()`: age out of bounds")
     end 
     return agegroup
-end
-
-function partnerup()
-    # function assigns partners to non-married people in each age-group
-    # an individual is only partnered with someone in their own age group
-    
-    # before starting, reset everyone's (NON MARRIED) partner. This is important for the "reshuffling" every 6 months.        
-    reset = findall(x -> x.partner > 0 && x.married == false, humans)
-    @debug "Resetting partners for $(length(reset)) individuals"
-    map(x -> humans[x].partner = 0, reset)
-
-    for ag in (1, 2, 3, 4)
-        ## get the indices of all the eligible males and females
-        malein = findall(x -> x.sex == MALE && get_age_group(x.age) == ag && x.married == false, humans)
-        femalein = findall(x -> x.sex == FEMALE && get_age_group(x.age) == ag && x.married == false, humans)
-
-        shuffle!(malein)
-        shuffle!(femalein)
-
-        for (m, f) in zip(malein, femalein)
-            @debug "pairing male $m (age: $(humans[m].age)), female $f (age: $(humans[f].age))"
-            humans[m].partner = f
-            humans[f].partner = m
-        end       
-    end       
-end
-
-function marry()        
-    h = findall(x -> x.partner > 0 && x.married == false, humans)
-    howmany = Int(round(length(h)*P.percent_married))
-    @debug "Number of people getting married" howmany
-    ctr = 1
-    while ctr <= howmany
-        rn = rand(h)
-        if humans[rn].married == 0 || humans[humans[rn].partner].married == 0
-            humans[rn].married = 1
-            humans[humans[rn].partner].married = 1
-            ctr += 1
-        end
-    end
 end
 
