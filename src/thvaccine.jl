@@ -159,4 +159,99 @@ module thvaccine
         @debug "Number of people married: $ans (distinct pairs: $(div(ans, 2)))"
     end
 
+
+    function calc_prob(age, sex, grp)
+        # for grp in ((15:19), (20:29), (30:39), (40:49))
+        #     println(length(findall(x -> x.age ∈ grp, humans))/10000)
+        # end
+
+        if sex == MALE  
+            s = :male
+            sd = :male_dis
+        else 
+            s = :female
+            sd = :female_dis
+        end
+
+        if grp == WHITE 
+            g = :white
+            gd = :white_dis
+        elseif grp == BLACK 
+            g = :black
+            gd = :black_dis
+        elseif grp == ASIAN
+            g = :asian
+            gd = :asian_dis
+        elseif grp == HIS
+            g = :hispanic
+            gd = :hispanic_dis
+        end
+
+        if age in (15:19)
+            a = :ag1
+            ad = :ag1_dis
+        elseif age in (20:29)
+            a = :ag2
+            ad = :ag2_dis
+        elseif age in (30:39)
+            a = :ag3
+            ad = :ag3_dis
+        elseif age in (40:49)
+            a = :ag4
+            ad = :ag4_dis
+        end
+
+        @debug "$a, $s, $g"
+        @debug "$ad, $sd, $gd"
+
+        conds = Dict{Symbol, Float64}()
+        push!(conds, :dis => 0.12)
+        push!(conds, :male => 0.50)
+        push!(conds, :female => 0.50)
+        push!(conds, :dis_male => 0.08)
+        push!(conds, :dis_female => 0.16)
+        push!(conds, :white => 0.65)
+        push!(conds, :black => 0.12)
+        push!(conds, :asian => 0.06)
+        push!(conds, :hispanic => 0.17)
+        push!(conds, :dis_white => 0.08)
+        push!(conds, :dis_black => 0.346)
+        push!(conds, :dis_asian => 0.038)
+        push!(conds, :dis_hispanic => 0.094)
+        push!(conds, :ag1 => 0.1354)
+        push!(conds, :ag2 => 0.2393)
+        push!(conds, :ag3 => 0.2434)
+        push!(conds, :ag4 => 0.3819)
+        push!(conds, :dis_ag1 => 0.008)
+        push!(conds, :dis_ag2 => 0.076)
+        push!(conds, :dis_ag3 => 0.133)
+        push!(conds, :dis_ag4 => 0.212)
+        conds[:male_dis] = conds[:dis_male]*conds[:male]/conds[:dis]            
+        conds[:female_dis] = conds[:dis_female]*conds[:female]/conds[:dis]
+        conds[:white_dis] = conds[:dis_white]*conds[:white]/conds[:dis]
+        conds[:black_dis] = conds[:dis_black]*conds[:black]/conds[:dis]
+        conds[:asian_dis] = conds[:dis_asian]*conds[:asian]/conds[:dis]
+        conds[:hispanic_dis] = conds[:dis_hispanic]*conds[:hispanic]/conds[:dis]
+        conds[:ag1_dis] = conds[:dis_ag1]*conds[:ag1]/conds[:dis]
+        conds[:ag2_dis] = conds[:dis_ag2]*conds[:ag2]/conds[:dis]
+        conds[:ag3_dis] = conds[:dis_ag3]*conds[:ag3]/conds[:dis]
+        conds[:ag4_dis] = conds[:dis_ag4]*conds[:ag4]/conds[:dis]
+    
+        ## calculate the conds
+        prob = (conds[ad]*conds[sd]*conds[gd]*conds[:dis])/(conds[a]*conds[s]*conds[g])
+        return round(prob, digits = 4)
+    end
+
+    function init_disease()
+        for i = 1:10000
+            rn = rand()
+            prb = calc_prob(humans[i].age, humans[i].sex, humans[i].grp)
+            if rn < prb
+                humans[i].health = ASYMP
+            end
+        end
+
+    end
+
+
 end # module

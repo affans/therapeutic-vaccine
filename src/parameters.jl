@@ -18,6 +18,20 @@
 
     pct_married = 0.20 ## percentage of people married at the start of sims
     pct_legions = 0.30 ## percentage of people married at the start of sims
+
+    ## prevalence data
+    Pd = 0.12
+    Pd_M = 0.08  ## sex
+    Pd_F = 0.12 
+    Pd_B = 0.346 
+    Pd_W = 0.08
+    Pd_A = 0.038
+    Pd_H = 0.094
+    Pd_Ag1 = 0.008
+    Pd_Ag2 = 0.076
+    Pd_Ag3 = 0.133
+    Pd_Ag4 = 0.212
+
 end
 
 mutable struct Human
