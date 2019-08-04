@@ -252,6 +252,4 @@ module thvaccine
         end
 
     end
-
-
 end # module
