@@ -12,7 +12,7 @@ module thvaccine
     const P = ModelParameters()
     const humans = Array{Human}(undef, P.num_of_humans)
     const gridsize = P.num_of_humans
-
+    const tracking = 0
 
     #Base.show(io::IO, ::Type{Human}) = print(io, "this is a Human type")
     function Base.show(io::IO, ::MIME"text/plain", z::Human)
@@ -31,8 +31,13 @@ module thvaccine
         println("Number of people with partners: $ans (distinct pairs: $(div(ans, 2)))")
         ans = length(findall(x -> x.partner > 0 && x.married == true, humans))
         println("Number of people married: $ans (distinct pairs: $(div(ans, 2)))")
-
     end
+
+    function track(id)
+        @debug "Tracking $id"
+        tracking = id
+    end
+    export track  
 
     main() = main(1)
     function main(simnumber::Int64) 
@@ -48,13 +53,13 @@ module thvaccine
         init_population()
         partnerup()
         marry()
-
+        init_disease()
         # time loop 
-        for i = 1:P.sim_time
-            ## main simulation loop started. 
-            age()
-            partnerup()
-        end 
+        # for i = 1:P.sim_time
+        #     ## main simulation loop started. 
+        #     age()
+        #     partnerup()
+        # end 
     end
 
     function init_population()    
@@ -82,9 +87,14 @@ module thvaccine
         ## this human h is exiting the pool, reset their information
         ## question: How much of the old information is saved? I.e. if a black person leaves, is it a black person coming in?
         ## if a male leaves, is it a male coming back in?
+        
         if h.partner > 0 
             if h.married == true 
+                oldgrp = humans[h.partner].grp
+                oldsex = humans[h.partner].sex  
                 init_human(humans[h.partner])
+                humans[h.partner].grp = oldgrp
+                humans[h.partner].age = oldsex
                 humans[h.partner].age = 15   
 
                 ## find another couple to marry. 
@@ -100,11 +110,16 @@ module thvaccine
                 humans[h.partner].partner = 0 
                 humans[h.partner].married = 0
             end
-        end        
+        end      
+        oldgrp = h.grp
+        oldsex = h.sex  
         init_human(h)              
-        h.age = 15        
+        h.age = 15   
+        h.grp = oldgrp     
+        h.sex = oldsex
         @debug "human exited population successfully."
     end
+    export exit_population
 
     ## contact pairings, married pairs        
     function partnerup()
@@ -113,6 +128,7 @@ module thvaccine
         
         # before starting, reset everyone's (NON MARRIED) partner. This is important for the "reshuffling" every 6 months.        
         ## NOT IMPLEMENTED: do some partners tend to stay with each other during the year?
+        ## Use the parameter P.pct_partnerchange to implement this.
         reset = findall(x -> x.partner > 0 && x.married == false, humans)
         @debug "Resetting partners for $(length(reset)) individuals"
         map(x -> humans[x].partner = 0, reset)
@@ -140,6 +156,7 @@ module thvaccine
         result = length(findall(x -> x.partner > 0, humans))
         @debug "Number of people with partners: $result (distinct pairs: $(div(result, 2)))"        
     end
+    export partnerup
 
     function marry()       
         ## create issue. People only the age of 19+ are married. 
@@ -158,7 +175,7 @@ module thvaccine
         ans = length(findall(x -> x.partner > 0 && x.married == true, humans))
         @debug "Number of people married: $ans (distinct pairs: $(div(ans, 2)))"
     end
-
+    export marry
 
     function calc_prob(age, sex, grp)
         # for grp in ((15:19), (20:29), (30:39), (40:49))
@@ -247,9 +264,113 @@ module thvaccine
             rn = rand()
             prb = calc_prob(humans[i].age, humans[i].sex, humans[i].grp)
             if rn < prb
-                humans[i].health = ASYMP
+                humans[i].health = INF
             end
         end
-
     end
+    export init_disease
+
+    function get_pairs()
+        ## helper function which may not get used. 
+        tmp = Array{Tuple{Int64, Int64}, 1}()
+        for i = 1:10000
+            if humans[i].partner > 0
+                push!(tmp, (i, humans[i].partner))
+            end            
+        end
+        tmp2 = unique(x -> Set(x), tmp)
+        return tmp2
+    end
+
+    function get_sick_pairs()
+        ## this function goes through all the pairs and returns only pairs 
+        ## that have ONE OR MORE infected.
+        ## it returns an array of tuples of the human/partner id. 
+        tmp = Array{Tuple{Int64, Int64}, 1}()
+        for i = 1:10000
+            if humans[i].partner > 0 && humans[i].health == INF
+                push!(tmp, (i, humans[i].partner))
+            end            
+        end
+        tmp2 = unique(x -> Set(x), tmp)
+        return tmp2
+    end
+
+    function get_single_sick_pairs()
+        ## this function goes through all the pairs 
+        ## and returns only pairs that have ONE infected. 
+        ## if both of them are infected or susceptible, it dosn't return. 
+        ## it returns an array of tuples of the human/partner id. 
+        ## moreover the first element of the tuple is the SICK person and the second element is the SUSC person. 
+        tmp = Array{Tuple{Int64, Int64}, 1}()
+        for i = 1:10000
+            if humans[i].partner > 0 && humans[i].health == INF && humans[humans[i].partner].health == SUSC
+                push!(tmp, (i, humans[i].partner))
+            end            
+        end
+        return tmp
+    end
+    export get_single_sick_pairs
+
+    function get_sexual_encounters()
+        ## function returns how many sexual encounters a pair will have
+    end
+
+    
+    function applydis(pair)
+        #go through each pair
+        p1 = humans[pair[1]]
+        p2 = humans[pair[2]]
+
+        @debug p1
+        @debug p2
+
+        diseasetransfer = false
+
+        recur_dist = p1.firstyearinfection ? Categorical(P.num_recur_firstyear) : Categorical(P.num_recur_thereafter)
+        numofepisodes = rand(recur_dist)
+        println("total symptomatic episodes: $numofepisodes.")
+        if numofepisodes > 0 
+            if p1.firstyearinfection  ## this really shouldnt make a difference.               
+                durationsymp = P.duration_first[p1.sex] + P.duration_recur[p1.sex]*(numofepisodes - 1)
+            else 
+                durationsymp =  P.duration_recur[p1.sex]*(numofepisodes)
+            end
+            durationshed =  Int(round(P.pct_days_shed_symp*durationsymp / 7))
+            # sample for each week of symtpomatic shedding the number of times they have sex
+            numofsex = reduce(+, [calculatesexfrequency(p1.age, p1.sex) for i=1:durationshed])
+                
+            # check if disease will transfer in these sexual encounters. 
+            for i = 1:numofsex 
+                if rand() < P.beta
+                    diseasetransfer = true
+                end
+            end
+            println("total duration of symptomatic episodes in days: $durationsymp")
+            println("total shedding time in weeks: $durationshed")
+            println("total sexual encounters in $durationshed weeks: $numofsex")
+            println("disease was successfully transferred during symptomatic periods")
+        end
+
+        ## now deal with all the days the individual is asymptmatic.
+        durationasymp = 360 - (durationsymp)
+        durationshed =  Int(round(P.pct_days_shed_asymp*(durationasymp) / 7))
+        numofsex = reduce(+, [calculatesexfrequency(p1.age, p1.sex) for i=1:durationshed])
+        for i = 1:numofsex 
+            if rand() < P.beta*P.asymp_reduction
+                diseasetransfer = true
+            end
+        end 
+        println("total duration of symptomatic episodes in days: $durationasymp")
+        println("total shedding time in weeks: $durationshed")
+        println("total sexual encounters in $durationshed weeks: $numofsex")
+        println("disease was successfully transferred during asymptomatic periods")
+
+        ## check how many people don't develop primary infection 
+        ## the numofsex while in symptomatic weeks should be less.
+        ## what happens to first year infection for the partner status?
+        return diseasetransfer
+    end
+    export applydis
+
 end # module

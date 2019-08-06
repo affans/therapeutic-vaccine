@@ -1,5 +1,5 @@
 ## Enums
-@enum HEALTH SUSC=1 ASYMP=3 INF=4 VAC=5 REC=6 
+@enum HEALTH SUSC=1 INF=2 ASYMP=3 SYMP=4 VAC=5 REC=6 
 @enum SEX MALE=1 FEMALE=2
 @enum GRP WHITE=1 BLACK=2 ASIAN=3 HIS=4
 
@@ -15,23 +15,26 @@
     grp_white = 0.65
     grp_black = 0.12
     grp_asian = 0.06
-
     pct_married = 0.20 ## percentage of people married at the start of sims
+    pct_partnerchange = 0.50 ## not implemented yet
+
+    # disease parameters.
     pct_legions = 0.30 ## percentage of people married at the start of sims
+    beta = 0.01
+    asymp_reduction = 0.50
+    incubation = 4.3   ## average incubation days.
 
-    ## prevalence data
-    Pd = 0.12
-    Pd_M = 0.08  ## sex
-    Pd_F = 0.12 
-    Pd_B = 0.346 
-    Pd_W = 0.08
-    Pd_A = 0.038
-    Pd_H = 0.094
-    Pd_Ag1 = 0.008
-    Pd_Ag2 = 0.076
-    Pd_Ag3 = 0.133
-    Pd_Ag4 = 0.212
+    duration_first::Dict{SEX, Int64} = Dict(MALE => 17, FEMALE => 20)
+    duration_recur::Dict{SEX, Int64} = Dict(MALE => 10, FEMALE => 12)
 
+    ## number of recurrances: 0 = 11%, 1-6: 51% (so 51/6 = 8.5%)
+    num_recur_firstyear::Array{Float64} = [0.11, 0.085, 0.085, 0.085, 0.085, 0.085, 0.085, 0.095, 0.095, 0.095, 0.095]
+    num_recur_thereafter::Array{Float64} = [0.20, 0.11, 0.11, 0.11, 0.11, 0.11, 0.11, 0.025, 0.025, 0.025, 0.025]
+
+    pct_days_shed_symp = 0.69
+    pct_days_shed_asymp = 0.10
+
+    
 end
 
 mutable struct Human
@@ -46,6 +49,9 @@ mutable struct Human
 
     partner::Int64
     married::Bool
+
+    firstyearinfection::Bool # infection first year 
+
     Human() = new()
 end
 
@@ -72,6 +78,8 @@ function init_human(h::Human)
     # partners
     h.partner = 0
     h.married = false
+
+    h.firstyearinfection = true
 
     return h
 end

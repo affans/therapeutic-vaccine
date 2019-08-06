@@ -92,6 +92,34 @@ end
     @test length(totalafter) == length(totalbefore)
 end
 
+@testset "Disease functions" begin
+    thvaccine.init_population()
+    thvaccine.partnerup()
+
+    ## test basic lenghts
+    allpairs = thvaccine.get_pairs()
+    allsickpairs = thvaccine.get_sick_pairs()
+    singlesickpairs = thvaccine.get_single_sick_pairs()
+    @test length(allpairs) == length(findall(x -> x.partner > 0, humans))/2
+    @test length(allpairs) >= length(allsickpairs) >= length(singlesickpairs)
+    
+    ## test each function 
+    ## for all sick, test each pair has atleast one sick person
+    a = map(allsickpairs) do p
+        humans[p[1]].health == INF || humans[p[2]].health == INF
+    end
+    @test false ∉ a
+
+    ## for all sick, test each pair has the first as the sick person as the ONLY sick person
+    a = map(singlesickpairs) do p
+        humans[p[1]].health == INF && humans[p[2]].health != INF
+    end
+    @test false ∉ a
+    
+    ## test that some sick individuals are male and some are female IN THE PAIRS
+   
+end
+
 @testset "Misc/Generic Functions" begin
     ## test the age groups.. should be from 1-4
     a = [thvaccine.get_age_group(humans[i].age) for i = 1:P.num_of_humans]
