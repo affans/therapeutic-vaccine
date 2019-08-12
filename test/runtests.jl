@@ -2,6 +2,16 @@ using Test, thvaccine
 
 const th = thvaccine
 @testset "Demographics" begin
+    ## init_human test
+    x = thvaccine.Human()
+    thvaccine.init_human(x, 1)
+    @test x.age >= 15 && x.age <= 49
+    @test x.partner == 0 && x.married == false
+    @test x.firstyearinfection == true
+    thvaccine.replace_human(x)  ## replace the human
+    @test x.partner == 0
+    @test x.age == 15
+
     thvaccine.init_population()
     a1 = [humans[i].age for i = 1:P.num_of_humans]
     @test length(findall(x -> x < 15 || x > 49, a1)) == 0
@@ -16,14 +26,14 @@ end
     a1 = findall(a -> humans[humans[a].partner].partner != a, allpartners)
     @test mod(length(allpartners), 2) == 0
     @test length(a1) == 0
-
+    @test length(allpartners) > 0
     # check if they are all within their age groups
-    a2 = findall(allpartners) do h
+    a2 = map(allpartners) do h
         age1 = humans[h].age
         age2 = humans[humans[h].partner].age
-        diffage = abs(age1 - age2)
+        diffage = abs(age1 - age2) <= 4     
     end
-    @test diffage <= 4
+    @test false ∉ a2
 
     # check if they are all within their ethnicites/subgroups
     a2 = findall(allpartners) do x
@@ -78,7 +88,7 @@ end
     partner = humans[id].partner
     totalbefore = findall(x -> x.married == true, humans)
     if id != nothing
-        thvaccine.exit_population(humans[id])
+        thvaccine.exit(humans[id])
         @test humans[id].partner == 0
         @test humans[id].married == 0
         @test humans[id].age == 15
@@ -90,33 +100,35 @@ end
     end
     totalafter = findall(x -> x.married == true, humans)
     @test length(totalafter) == length(totalbefore)
+
 end
 
 @testset "Disease functions" begin
+    ## these tests include the testing of get_partners function as well. 
     thvaccine.init_population()
     thvaccine.partnerup()
 
-    ## test basic lenghts
-    allpairs = thvaccine.get_pairs()
-    allsickpairs = thvaccine.get_sick_pairs()
-    singlesickpairs = thvaccine.get_single_sick_pairs()
-    @test length(allpairs) == length(findall(x -> x.partner > 0, humans))/2
-    @test length(allpairs) >= length(allsickpairs) >= length(singlesickpairs)
+    ## test basic lengths
+    allpartners = thvaccine.get_partners()
+    @test length(allpartners) == length(findall(x -> x.partner > 0, humans))/2
     
-    ## test each function 
-    ## for all sick, test each pair has atleast one sick person
-    a = map(allsickpairs) do p
-        humans[p[1]].health == INF || humans[p[2]].health == INF
-    end
-    @test false ∉ a
 
-    ## for all sick, test each pair has the first as the sick person as the ONLY sick person
-    a = map(singlesickpairs) do p
-        humans[p[1]].health == INF && humans[p[2]].health != INF
+    sickpartners = thvaccine.get_partners(onlysick = true)
+    @test length(sickpartners) == 0 ## we havn't run the init_disease function yet. 
+
+    thvaccine.init_disease()
+    sickpartners = thvaccine.get_partners(onlysick = true)
+    @test length(sickpartners) > 0 ## we should have positive lenght now
+    @test length(sickpartners) <= length(allpartners) ## basic bug check
+
+    ## see if we can find a pair that's not sick. 
+    a = findall(sickpartners) do p 
+        humans[p.a].health != INF && humans[p.b].health != INF 
     end
-    @test false ∉ a
-    
-    ## test that some sick individuals are male and some are female IN THE PAIRS
+    @test length(a) == 0
+
+    ## test init_disease() probabilities. 
+    ## test whether the initialized diseased is within the confidence limits of the data paper.
    
 end
 

@@ -38,6 +38,7 @@
 end
 
 mutable struct Human
+    id::Int64
     health::HEALTH
     legions::Bool
     recur::Int64 ## number of recurrances in a time step (~1 year?)
@@ -53,6 +54,12 @@ mutable struct Human
     firstyearinfection::Bool # infection first year 
 
     Human() = new()
+end
+
+
+function init_human(h::Human, id)
+    init_human(h)
+    h.id = id
 end
 
 function init_human(h::Human)   
@@ -82,4 +89,15 @@ function init_human(h::Human)
     h.firstyearinfection = true
 
     return h
+end
+
+function replace_human(h::Human)
+    oldid =  h.id
+    oldgrp = h.grp
+    oldsex = h.sex  
+    init_human(h)
+    h.grp = oldgrp
+    h.sex = oldsex
+    h.age = 15
+    h.id = oldid
 end
