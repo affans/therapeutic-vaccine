@@ -10,15 +10,10 @@ module thvaccine
     #main exports.
     export P, humans, main, modelinfo
     
+    const gridsize = 10000
     const P = ModelParameters()
-    const humans = Array{Human}(undef, P.num_of_humans)
-    const gridsize = P.num_of_humans
+    const humans = Array{Human}(undef, gridsize)
     const verbose = false ## not used
-
-    #Base.show(io::IO, ::Type{Human}) = print(io, "this is a Human type")
-    function Base.show(io::IO, ::MIME"text/plain", z::Human)
-       dump(z)
-    end
     
     #const runsummary = Dict{String, Int64}()
     function modelinfo()        
@@ -37,40 +32,31 @@ module thvaccine
 
     main() = main(1)
     function main(simnumber::Int64) 
-        #Random.seed!(simnumber)        
+        #Random.seed!(simnumber) 
         
-        #initialization stage
-        # 1) initialize the population 
-        #   -> demographics, 
-        #   -> partnerships, 
-        #   -> marriage 
-        # 2) distribute the initial disease throughout the population.
-
-        ## data frames
-        df1names = Symbol.(["Total", "Ag1", "Ag2", "Ag3", "Ag4", "Wte", "Blk", "Asn", "His", "M", "F"])
-        df1types = [Int64 for i = 1:length(df1names)]
-        df1 = DataFrame(df1types, df1names, P.sim_time)
-
+        global dat = SimData(P) ## we can't use const here at the global level since each simulation needs to be on its own
+        global yr ## make the year available to all functions
+        #show(dat.prevalence) #this shows that at every run of the function main(), the data is a new object
+        # setup initial simulation
         init_population()
         partnerup()
         marry()
         init_disease()
-        println("simulation setup success")
-        #time loop 
+        
+        # step through discrete time. 
         for i = 1:P.sim_time
-            #main simulation loop started. 
-            disdyn()
-            age()
+            yr = i
+            disdyn()   ## disease transmission dynamics
+            age()                
             partnerup()
-            modelinfo()
-            println("Year $i done...")
-            println("\n")
-            df1[i, 1:end] .= data_df1()
+            record_prev(yr) ## record prevalence data
+            #println("Year $yr done...")            
         end 
-        return (df1)
+        return dat ## return the data structure.
     end
 
-    function data_df1()
+    function record_prev(year)
+        ## this just runs some queries for data collection.
         total = length(findall(x -> x.health == INF, humans))
         ag1 = length(findall(x -> x.health == INF && x.age ∈ 15:19, humans))
         ag2 = length(findall(x -> x.health == INF && x.age ∈ 20:29, humans))
@@ -84,8 +70,8 @@ module thvaccine
         
         M = length(findall(x -> x.health == INF && x.sex == MALE, humans))
         F = length(findall(x -> x.health == INF && x.sex == FEMALE, humans))
-        
-        return (total, ag1, ag2, ag3, ag4, wte, blk, asn, his, M, F)
+        #println(" ---- $yr")
+        dat.prevalence[year, 1:end] .=  (total, ag1, ag2, ag3, ag4, wte, blk, asn, his, M, F)
     end
 
     function _reset()
@@ -94,16 +80,15 @@ module thvaccine
         partnerup()
         marry()
         init_disease()
-    end 
+    end
+
     function init_population()    
         @inbounds for i = 1:gridsize       
             humans[i] = Human()   ## create an empty human
             humans[i].id = i
             init_human(humans[i]) ## initialize the human
         end
-        @debug "population initialized"
     end
-
 
     function age() 
         ## this increases the age of every individual. If the individual is 49+ we replace with a 15 year old. 
@@ -211,7 +196,7 @@ module thvaccine
     function get_partners(; onlysick = false)
         ## only returns susceptible/infected or infected/infected partners.
         arr = Array{Partner, 1}()
-        for (x, i) in zip(humans, 1:10000)
+        for (x, i) in zip(humans, 1:gridsize)
             if x.partner > 0 
                 if onlysick
                     if x.health == INF
@@ -241,19 +226,17 @@ module thvaccine
         ## if it's a SUSC/INF then there is chance of transmission
         ## if it's a INF/INF then it's just a matter of data collection.
         ## if its a SUSC/SUSC, then everything is irrelevant. 
+
+        ## TO DO: In an SUSC/INF pair, if the susc get's infected... run _dis() for them also.
         
         #dfnames = [:year, keys(nt)...]
         #df = DataFrame([Int64 for i = 1:8], dfnames, 0)
         all_pairs = get_partners(onlysick = true)
 
-        ctr_pair = 0
-        ctr_xor = 0
-        ctr_dis = 0
+        ctr_pair = 0  ## total number of sick pairs
+        ctr_xor = 0   ## total number of SUSC/INF pairs
+        ctr_dis = 0   ## total number of the SUSC/INF pairs that got sick. 
         for p in all_pairs
-            # if humans[p.a].health == INF && humans[p.b].health == INF
-            #     dta, nta = _dis(p.a)
-            #     dtb, ntb = _dis(p.b)                
-            # end
             p1health = humans[p.a].health 
             p2health = humans[p.b].health
             ctr_pair += 1
@@ -267,13 +250,12 @@ module thvaccine
                     sick = p.b
                     susc = p.a
                 end
-                #@debug "$(p.a) and $(p.b) either or are sick"
-                #@debug "p.a=$(p.a) health=$(p1health), p.b=$(p.b) health=$(p2health)"
-                #@debug "$sick is sick ID and $susc is susc ID"
-                dta, nta = _dis(sick)
+                dta = _dis(sick)
                 if dta 
                     ctr_dis += 1
                     humans[susc].health = INF 
+                    humans[susc].firstyearinfection = true
+                    _dis(susc)  ## nothing will happen. Just need to record the data. 
                     #println("$(p.a) and $(p.b) either or are sick")
                     #println("p.a=$(p.a) health=$(p1health), p.b=$(p.b) health=$(p2health)")
                     #println("$sick is sick ID and $susc is susc ID")
@@ -281,7 +263,8 @@ module thvaccine
                 end
             end
         end
-        println("total: $ctr_pair, xor'ed: $ctr_xor, diseased: $ctr_dis")
+        #println("total: $ctr_pair, xor'ed: $ctr_xor, diseased: $ctr_dis")
+        return (ctr_pair, ctr_xor, ctr_dis)
     end
     export disdyn
 
@@ -314,6 +297,8 @@ module thvaccine
             # sample for each week of symtpomatic shedding the number of times they have sex
             numofsex_perweek_symp = [calculatesexfrequency(x.age, x.sex) for i=1:durationshed_symp]
             numofsex_symp = reduce(+, numofsex_perweek_symp)
+
+            firstyearinfection = false
         end
         ## now deal with all the days the individual is asymptmatic.
         ## this part is repeated from above... can be put in it's own function. 
@@ -336,11 +321,11 @@ module thvaccine
         end
 
         ## return data for collection. 
-        ret = (NumSympEpisodes = numofepisodes, DurationOfSympDays = durationsymp, 
+        ret = (year = yr, id = id, NumSympEpisodes = numofepisodes, DurationOfSympDays = durationsymp, 
                NumOfShedWeeksSymp = durationshed_symp, TotalNumOfSexSymp = numofsex_symp, 
                DurationOfASympDays = durationasymp, NumOfShedWeeksASymp = durationshed_asymp, NumOfSexAsymp = numofsex_asymp)
-
-        return (dt, ret)
+        push!(dat.episodes, ret)
+        return dt
     end 
 
 end # module

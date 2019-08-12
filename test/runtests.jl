@@ -13,7 +13,7 @@ const th = thvaccine
     @test x.age == 15
 
     thvaccine.init_population()
-    a1 = [humans[i].age for i = 1:P.num_of_humans]
+    a1 = [humans[i].age for i = 1:gridsize]
     @test length(findall(x -> x < 15 || x > 49, a1)) == 0
 end
 
@@ -134,7 +134,7 @@ end
 
 @testset "Misc/Generic Functions" begin
     ## test the age groups.. should be from 1-4
-    a = [thvaccine.get_age_group(humans[i].age) for i = 1:P.num_of_humans]
+    a = [thvaccine.get_age_group(humans[i].age) for i = 1:gridsize]
     @test length(findall(x -> x ∉ (1, 2, 3, 4), a)) == 0
 
     # ## test model parameters -- distribution of ethnicities

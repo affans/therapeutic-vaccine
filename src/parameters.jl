@@ -7,8 +7,6 @@
 @with_kw struct ModelParameters @deftype Float64
     # general parameters
     sim_time::Int64 = 20  ## ten years in 6 month intervals. 
-    num_of_humans::Int64 = 10000
-   
 
     ## demographic information https://factfinder.census.gov/bkmk/table/1.0/en/ACS/17_5YR/DP05
     grp_hispanic = 0.17
@@ -33,8 +31,21 @@
 
     pct_days_shed_symp = 0.69
     pct_days_shed_asymp = 0.10
+end
 
-    
+struct SimData
+    # data frames
+    prevalence::DataFrame
+    episodes::DataFrame
+    function SimData(P)
+        _names = Symbol.(["Total", "Ag1", "Ag2", "Ag3", "Ag4", "Wte", "Blk", "Asn", "His", "M", "F"])
+        prev = DataFrame([Int64 for i = 1:length(_names)], _names, P.sim_time)
+        prev .= 0
+        epi = DataFrame()
+        # disdyn = DataFrame([Int64, Int64, Int64], [:TotalSick, :PartneredSick, :Transferred], P.sim_time)
+        # disdyn .= 0
+        new(prev, epi)
+    end
 end
 
 mutable struct Human
@@ -48,14 +59,18 @@ mutable struct Human
     sex::SEX # 0: female, 1:male   
     grp::GRP
 
+    ## partnership and pairings
     partner::Int64
     married::Bool
 
+    ## whether infection happens in first year.
     firstyearinfection::Bool # infection first year 
 
     Human() = new()
 end
 
+#Base.show(io::IO, ::Type{Human}) = print(io, "this is a Human type")
+Base.show(io::IO, ::MIME"text/plain", z::Human) = dump(z)
 
 function init_human(h::Human, id)
     init_human(h)
@@ -101,3 +116,5 @@ function replace_human(h::Human)
     h.age = 15
     h.id = oldid
 end
+
+
