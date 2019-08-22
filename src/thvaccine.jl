@@ -1,3 +1,14 @@
+### before camping (after push to github so SAVE then delete these comments)
+### basically added a new struct containing data frames in parameters.jl
+### In this struct add any dataframe for collecting data. 
+### Sometimes easier to preallocate, sometimes easier to just push
+
+### In terms of disease dynamics.. In disyn() if INF/SUSC makes susc sick, then I run _dis for the susceptible also for the data collection
+### TO DO: FIRST THING.. run _dis for INF/INF pairing as well. This is just data collection. 
+### It dosn't change the dynamics (well except that it may turn `firstyearinfection` off)
+### MAKE NOTE OF THIS IN GITHUB ISSUES.
+
+
 module thvaccine
     using Distributions
     using Parameters
@@ -43,21 +54,24 @@ module thvaccine
         marry()
         init_disease()
         
-        # step through discrete time. 
-        for i = 1:P.sim_time
+        yr = 1                ## record the initial data
+        record_prevalence(yr) ## record prevalence data
+
+        for i = 1:P.sim_time # step through discrete time (add one to sim_time since starting at 2)
             yr = i
-            disdyn()   ## disease transmission dynamics
+            record_prevalence(yr) ## record prevalence data
+            transmission(yr)   
             age()                
             partnerup()
-            record_prev(yr) ## record prevalence data
-            #println("Year $yr done...")            
         end 
         return dat ## return the data structure.
     end
 
-    function record_prev(year)
+    function record_prevalence(year)
         ## this just runs some queries for data collection.
+        ## make sure dat is initialized as a SimData object.
         total = length(findall(x -> x.health == INF, humans))
+        totalpartners = length(findall(x -> x.partner > 0 && x.health == INF, humans))
         ag1 = length(findall(x -> x.health == INF && x.age ∈ 15:19, humans))
         ag2 = length(findall(x -> x.health == INF && x.age ∈ 20:29, humans))
         ag3 = length(findall(x -> x.health == INF && x.age ∈ 30:39, humans))
@@ -70,8 +84,12 @@ module thvaccine
         
         M = length(findall(x -> x.health == INF && x.sex == MALE, humans))
         F = length(findall(x -> x.health == INF && x.sex == FEMALE, humans))
-        #println(" ---- $yr")
-        dat.prevalence[year, 1:end] .=  (total, ag1, ag2, ag3, ag4, wte, blk, asn, his, M, F)
+        
+        ## enter data in dataframes
+
+        dat.prevalence[year, 1:end] .=  (total, totalpartners, ag1, ag2, ag3, ag4, wte, blk, asn, his, M, F)
+        dat.partners[year, 1:end] .=  partner_info()
+
     end
 
     function _reset()
@@ -81,6 +99,7 @@ module thvaccine
         marry()
         init_disease()
     end
+    export _reset
 
     function init_population()    
         @inbounds for i = 1:gridsize       
@@ -221,7 +240,22 @@ module thvaccine
     end
     export init_disease
 
-    function disdyn()
+    function partner_info()
+        all_pairs = get_partners()  
+        sick_pairs = get_partners(onlysick = true)
+        infsusc_pairs = 0
+        for p in sick_pairs
+            p1health = humans[p.a].health 
+            p2health = humans[p.b].health
+            if xor(p1health == INF, p2health == INF)
+                infsusc_pairs += 1
+            end
+        end
+        return length(all_pairs), length(sick_pairs), infsusc_pairs
+    end
+    export partner_info
+
+    function transmission(year = 1)
         ## we are checking disease transmission between each pair.
         ## if it's a SUSC/INF then there is chance of transmission
         ## if it's a INF/INF then it's just a matter of data collection.
@@ -231,15 +265,13 @@ module thvaccine
         
         #dfnames = [:year, keys(nt)...]
         #df = DataFrame([Int64 for i = 1:8], dfnames, 0)
-        all_pairs = get_partners(onlysick = true)
-
-        ctr_pair = 0  ## total number of sick pairs
+        sick_pairs = get_partners(onlysick = true)
+              
         ctr_xor = 0   ## total number of SUSC/INF pairs
         ctr_dis = 0   ## total number of the SUSC/INF pairs that got sick. 
-        for p in all_pairs
+        for p in sick_pairs
             p1health = humans[p.a].health 
             p2health = humans[p.b].health
-            ctr_pair += 1
             if xor(p1health == INF, p2health == INF)
                 ctr_xor += 1
                 if p1health == INF && p2health != INF
@@ -250,43 +282,37 @@ module thvaccine
                     sick = p.b
                     susc = p.a
                 end
-                dta = _dis(sick)
+                dta = _dis(sick, year)
                 if dta 
                     ctr_dis += 1
                     humans[susc].health = INF 
                     humans[susc].firstyearinfection = true
-                    _dis(susc)  ## nothing will happen. Just need to record the data. 
-                    #println("$(p.a) and $(p.b) either or are sick")
-                    #println("p.a=$(p.a) health=$(p1health), p.b=$(p.b) health=$(p2health)")
-                    #println("$sick is sick ID and $susc is susc ID")
-                    #println("susc=$susc is now sick")             
+                    _dis(susc, year)  ## nothing will happen. Just need to record the data. 
                 end
             end
         end
+        dat.transmission[year, 1:end] .= (ctr_xor, ctr_dis)
         #println("total: $ctr_pair, xor'ed: $ctr_xor, diseased: $ctr_dis")
-        return (ctr_pair, ctr_xor, ctr_dis)
+        return ctr_xor, ctr_dis
     end
-    export disdyn
+    export transmission
 
-    function _dis(id)
+    function _dis(id, year = 1)
         #@debug P.beta
         x = humans[id]
+        xpartner = humans[id].partner
         dt = false ## disease transfer flag
-        if x.health != INF 
-            ret = (NumSympEpisodes = 0, DurationOfSympDays = 0, 
-            NumOfShedWeeksSymp = 0, TotalNumOfSexSymp = 0, 
-            DurationOfASympDays = 0, NumOfShedWeeksASymp = 0, NumOfSexAsymp = 0)
-            return (dt, ret)
+  
+        if x.health != INF ## should not happen in the main course of the simulations.
+            return dt
         end
-       
         recur_dist = x.firstyearinfection ? Categorical(P.num_recur_firstyear) : Categorical(P.num_recur_thereafter)
-        numofepisodes = rand(recur_dist)
-        # println("total symptomatic episodes: $numofepisodes.")
-        # println("total duration of symptomatic episodes in days: $durationasymp")
-        # println("total shedding time in weeks: $durationshed")
-        # println("total sexual encounters in $durationshed weeks: $numofsex")
-        # println("disease was successfully transferred during asymptomatic periods")
+        numofepisodes = rand(recur_dist) - 1  ## since julia is one based. 
 
+        ## initialize variables 
+        durationsymp = 0
+        durationshed_symp =  0
+        numofsex_symp = 0
         if numofepisodes > 0 
             if x.firstyearinfection  ## this really shouldnt make a difference.               
                 durationsymp = P.duration_first[x.sex] + P.duration_recur[x.sex]*(numofepisodes - 1)
@@ -298,6 +324,7 @@ module thvaccine
             numofsex_perweek_symp = [calculatesexfrequency(x.age, x.sex) for i=1:durationshed_symp]
             numofsex_symp = reduce(+, numofsex_perweek_symp)
 
+            # for this sick person, this has all happened within the span of one year.
             firstyearinfection = false
         end
         ## now deal with all the days the individual is asymptmatic.
@@ -319,11 +346,11 @@ module thvaccine
                 dt = true
             end
         end
-
+        
         ## return data for collection. 
-        ret = (year = yr, id = id, NumSympEpisodes = numofepisodes, DurationOfSympDays = durationsymp, 
-               NumOfShedWeeksSymp = durationshed_symp, TotalNumOfSexSymp = numofsex_symp, 
-               DurationOfASympDays = durationasymp, NumOfShedWeeksASymp = durationshed_asymp, NumOfSexAsymp = numofsex_asymp)
+        ret = (year, id, xpartner, dt, numofepisodes, 
+                durationsymp, durationshed_symp, numofsex_symp, 
+                durationasymp, durationshed_asymp, numofsex_asymp)
         push!(dat.episodes, ret)
         return dt
     end 

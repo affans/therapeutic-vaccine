@@ -18,8 +18,8 @@
 
     # disease parameters.
     pct_legions = 0.30 ## percentage of people married at the start of sims
-    beta = 0.01
-    asymp_reduction = 0.50
+    beta = 1.0 #0.01
+    asymp_reduction = 1.0 # 0.50
     incubation = 4.3   ## average incubation days.
 
     duration_first::Dict{SEX, Int64} = Dict(MALE => 17, FEMALE => 20)
@@ -36,15 +36,26 @@ end
 struct SimData
     # data frames
     prevalence::DataFrame
+    partners::DataFrame
     episodes::DataFrame
+    transmission::DataFrame
     function SimData(P)
-        _names = Symbol.(["Total", "Ag1", "Ag2", "Ag3", "Ag4", "Wte", "Blk", "Asn", "His", "M", "F"])
+        ## set up dataframes. when setting up data frames for yearly level data, add 1 to sim_time for the initial year
+
+        ## setup prevalence dataframe
+        _names = Symbol.(["Total","TotalPartners", "Ag1", "Ag2", "Ag3", "Ag4", "Wte", "Blk", "Asn", "His", "M", "F"])
         prev = DataFrame([Int64 for i = 1:length(_names)], _names, P.sim_time)
         prev .= 0
-        epi = DataFrame()
-        # disdyn = DataFrame([Int64, Int64, Int64], [:TotalSick, :PartneredSick, :Transferred], P.sim_time)
-        # disdyn .= 0
-        new(prev, epi)
+
+        partners = DataFrame([Int64 for i = 1:3], [:partners, :partners_sick, :ctr_xor], P.sim_time)
+        partners .= 0
+        
+        episodes = DataFrame([Int64 for i = 1:11], [:year, :id, :partner, :dt, :numofepisodes, 
+                                                   :durationsymp, :durationshed_symp, :numofsex_symp, 
+                                                   :durationasymp, :durationshed_asymp, :numofsex_asymp])
+
+        transmission = DataFrame([Int64, Int64], [:susc_inf, :dt], P.sim_time)
+        new(prev, partners, episodes, transmission)
     end
 end
 
@@ -101,6 +112,7 @@ function init_human(h::Human)
     h.partner = 0
     h.married = false
 
+    ## if they get infected, then it's going to be their first year of infection. 
     h.firstyearinfection = true
 
     return h

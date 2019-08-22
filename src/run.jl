@@ -10,4 +10,4 @@ addprocs(4; exeflags="--project")
 @everywhere using thvaccine
 
 
-res = pmap(x -> main(x), 1:5)
+res = map(x -> main(x), 1:5)

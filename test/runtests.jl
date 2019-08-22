@@ -1,6 +1,7 @@
 using Test, thvaccine
 
 const th = thvaccine
+const gridsize = length(thvaccine.humans)
 @testset "Demographics" begin
     ## init_human test
     x = thvaccine.Human()
@@ -123,13 +124,27 @@ end
 
     ## see if we can find a pair that's not sick. 
     a = findall(sickpartners) do p 
-        humans[p.a].health != INF && humans[p.b].health != INF 
+        humans[p.a].health != thvaccine.INF && humans[p.b].health != thvaccine.INF 
     end
     @test length(a) == 0
 
     ## test init_disease() probabilities. 
     ## test whether the initialized diseased is within the confidence limits of the data paper.
    
+    ## test if the numbers all add up (adhoc checks data collection is okay)
+    _reset() ## reset the population. 
+    ## prevalence counts with partners. these are total # of individuals with partners (some infected individuals may not be without partners)
+    prevcnt = length(findall(x -> x.partner > 0 && x.health == thvaccine.INF, humans))
+    allpartnercnt = length(get_partners())
+    sickpartnercnt = length(get_partners(onlysick = true)) ## get the total number of pairs with either inf/susc or inf/inf
+    ## run transmission. the last ctr_dis is obviously dependent on beta but we don't care about that right now. 
+    _a, _b, _c = thvaccine.partner_info()
+    @test _a == allpartnercnt
+    @test _b == sickpartnercnt
+    # _c contains all the pairs with only INF/SUSC
+    infinf = _b - _c
+    @test _c + infinf*2 == prevcnt
+
 end
 
 @testset "Misc/Generic Functions" begin
