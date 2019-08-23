@@ -95,7 +95,6 @@ function init_human(h::Human)
     ## everything is adjusted for the races we have. 
     ## For example, the census reports other races as well. 
     ## to calculate our distribution, I summed up the population sizes only from the races we have, and used that as the denominator. 
-    
     agedist = Categorical([0.13, 0.12, 0.24, 0.25, 0.26])
     agebraks = [15:19, 20:24, 25:34, 35:44, 45:49]
     grpdist = Categorical([P.grp_white, P.grp_black, P.grp_asian, P.grp_hispanic])
@@ -103,7 +102,7 @@ function init_human(h::Human)
     h.health = SUSC
     h.legions = rand() < P.pct_legions ? true : false
 
-    # demographics
+    # demographics -- this is where most of the allocations happen
     h.age = rand(agebraks[rand(agedist)])
     h.sex = rand() < 0.5 ? MALE : FEMALE
     h.grp = GRP(rand(grpdist))

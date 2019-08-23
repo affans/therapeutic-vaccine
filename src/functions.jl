@@ -120,3 +120,18 @@ function get_age_group(age::Int64)
     return agegroup
 end
 
+   #const runsummary = Dict{String, Int64}()
+function modelinfo()        
+    ans = length(findall(x -> x.sex == MALE, humans))
+    println("Number of MALE: $ans")
+    ans = length(findall(x -> x.sex == FEMALE, humans))
+    println("Number of FEMALE: $ans")
+    ans = length(findall(x -> x.partner > 0, humans))
+    println("Number of people with partners: $ans (distinct pairs: $(div(ans, 2)), confirm: $(length(get_partners())) )")
+    ans = length(findall(x -> x.partner > 0 && x.married == true, humans))
+    println("Number of people married: $ans (distinct pairs: $(div(ans, 2)))")
+    a1 = length(findall(x -> x.health == INF, humans))
+    a2 = length(findall(x -> x.partner > 0 && x.health == INF, humans))
+    println("Number of infected: $a1 (with partners: $a2) ")
+end
+

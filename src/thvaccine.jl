@@ -8,6 +8,7 @@
 ### It dosn't change the dynamics (well except that it may turn `firstyearinfection` off)
 ### MAKE NOTE OF THIS IN GITHUB ISSUES.
 
+## TO DO Remove Legions from human structure
 
 module thvaccine
     using Distributions
@@ -26,21 +27,6 @@ module thvaccine
     const humans = Array{Human}(undef, gridsize)
     const verbose = false ## not used
     
-    #const runsummary = Dict{String, Int64}()
-    function modelinfo()        
-        ans = length(findall(x -> x.sex == MALE, humans))
-        println("Number of MALE: $ans")
-        ans = length(findall(x -> x.sex == FEMALE, humans))
-        println("Number of FEMALE: $ans")
-        ans = length(findall(x -> x.partner > 0, humans))
-        println("Number of people with partners: $ans (distinct pairs: $(div(ans, 2)), confirm: $(length(get_partners())) )")
-        ans = length(findall(x -> x.partner > 0 && x.married == true, humans))
-        println("Number of people married: $ans (distinct pairs: $(div(ans, 2)))")
-        a1 = length(findall(x -> x.health == INF, humans))
-        a2 = length(findall(x -> x.partner > 0 && x.health == INF, humans))
-        println("Number of infected: $a1 (with partners: $a2) ")
-    end
-
     main() = main(1)
     function main(simnumber::Int64) 
         #Random.seed!(simnumber) 
@@ -50,7 +36,7 @@ module thvaccine
         #show(dat.prevalence) #this shows that at every run of the function main(), the data is a new object
         # setup initial simulation
         init_population()
-        partnerup()
+        create_partners()
         marry()
         init_disease()
         
@@ -62,7 +48,7 @@ module thvaccine
             record_prevalence(yr) ## record prevalence data
             transmission(yr)   
             age()                
-            partnerup()
+            create_partners()
         end 
         return dat ## return the data structure.
     end
@@ -89,38 +75,34 @@ module thvaccine
 
         dat.prevalence[year, 1:end] .=  (total, totalpartners, ag1, ag2, ag3, ag4, wte, blk, asn, his, M, F)
         dat.partners[year, 1:end] .=  partner_info()
-
     end
-
-    function _reset()
-        ## helper function forr esetting the population while debugging.
-        init_population()
-        partnerup()
-        marry()
-        init_disease()
-    end
-    export _reset
+    export record_prevalence
 
     function init_population()    
         @inbounds for i = 1:gridsize       
             humans[i] = Human()   ## create an empty human
-            humans[i].id = i
-            init_human(humans[i]) ## initialize the human
+            init_human(humans[i], i) ## initialize the human
         end
     end
+    export init_population
 
     function age() 
         ## this increases the age of every individual. If the individual is 49+ we replace with a 15 year old. 
         # if the 49 year old had a partner, that partner is now single and is available for pairing at the next shuffle.
         # if the 49 year old had a partner and they were married, both of them are replaced.       
-        for x in humans 
-            x.age += 1 
-            x.age > 49 && exit(x)
+        ct = 0
+        for h in humans 
+            h.age += 1 
+            if h.age > 49 
+                ct += 1
+                exit_population(h)
+            end
         end
+        return ct
     end
     export age 
 
-    function exit(h::Human)
+    function exit_population(h::Human)
         ## this human h is exiting the pool, reset their information
         ## if the person is married, their partner leaves as well.
         ## question: How much of the old information is saved? I.e. if a black person leaves, is it a black person coming in?
@@ -144,7 +126,7 @@ module thvaccine
         end      
         replace_human(h)
     end
-    export exit
+
 
     ## Partnerships
     struct Partner
@@ -156,18 +138,23 @@ module thvaccine
         return (p1.a == p2.a && p1.b == p2.b) || (p1.a == p2.b && p1.b == p2.a)
     end
     export Partner
+
+
+    function reset_all_partners()
+        cnt = 0 
+        for x in humans
+            if x.partner > 0 && x.married == false
+                x.partner = 0
+                cnt += 1
+            end
+        end
+        return cnt
+    end
         
-    function partnerup()
+    function create_partners()
         # function assigns partners to non-married people in each age-group
         # an individual is only partnered with someone in their own age group
-        
-        # before starting, reset everyone's (NON MARRIED) partner. This is important for the "reshuffling" every 6 months.        
-        ## NOT IMPLEMENTED: do some partners tend to stay with each other during the year?
-        ## Use the parameter P.pct_partnerchange to implement this.
-        reset = findall(x -> x.partner > 0 && x.married == false, humans)
-       # @debug "Resetting partners for $(length(reset)) non married individuals"
-        map(x -> humans[x].partner = 0, reset)
-
+        reset_all_partners()
         for eg in (WHITE, BLACK, ASIAN, HIS)
             for ag in (15:19, 20:24, 25:29, 30:34, 35:39, 40:44, 45:49)
                 ## get the indices of all the eligible males and females. 
@@ -191,7 +178,7 @@ module thvaccine
         result = length(findall(x -> x.partner > 0, humans))
         #@debug "Number of people with partners: $result (distinct pairs: $(div(result, 2)))"        
     end
-    export partnerup
+    export create_partners
 
     function marry()       
         ## marries people everytime this function is called. 
@@ -230,17 +217,39 @@ module thvaccine
     end
     export get_partners
 
+    function _resetdemo()
+        ## helper function forr esetting the population while debugging.
+        init_population()
+        create_partners()
+        marry()
+    end
+
+    function _resetdisease()
+        init_disease()
+    end
+
+    function _reset()
+        _resetdemo()
+        _resetdisease()
+    end
+    export _reset, _resetdemo, _resetdisease
+
     function init_disease()
         ## initialize the disease based on data distribution
+        cnt = 0
         for x in humans
             rn = rand()
             prb = disease_probability(x.age, x.sex, x.grp)
-            rn < prb && (x.health = INF)
+            if rn < prb 
+                x.health = INF
+                cnt += 1
+            end
         end
+        return cnt
     end
     export init_disease
 
-    function partner_info()
+    function pair_stats()
         all_pairs = get_partners()  
         sick_pairs = get_partners(onlysick = true)
         infsusc_pairs = 0
@@ -253,8 +262,10 @@ module thvaccine
         end
         return length(all_pairs), length(sick_pairs), infsusc_pairs
     end
-    export partner_info
+    export pair_stats
 
+
+    ## HAVE TO REWRITE THE TRANSMISSION + VACCINE FUNCTIONS.
     function transmission(year = 1)
         ## we are checking disease transmission between each pair.
         ## if it's a SUSC/INF then there is chance of transmission
