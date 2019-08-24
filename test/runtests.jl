@@ -211,9 +211,6 @@ end
 end
 
 @testset "IDIS" begin
-#     @testset "HEL" begin
-#     @test 1 == 1
-# end
     th._resetdemo() ## reset the demographics
  
     ## we havn't run the init_disease function yet. 
@@ -259,6 +256,36 @@ end
     @test _c + infinf*2 == prevcnt
 end
 
+@testset "YEAR" begin
+    ## in this test set, we test the main logic of the disease transfer functions. 
+    th.P = th.ModelParameters()
+    th._reset() ## reset the population.
+     
+    ## pick a human. dosn't matter which one and run the function
+    id = findfirst(x -> x.health == th.INF, humans)
+    x = humans[id]
+    x.firstyearinfection = true ## force these just incase
+    x.vaccinated = false
+
+    # run the function
+    r = th._yeardis(id)
+
+    ### TO DO ON SAT 25. TEST _yeardis() properly. 
+    
+    # check various properties are set 
+    @test r.vac_status == false
+    if r.numofepisodes > 0 # only way someone gets vaccinated
+        @test r.vaccinated == true  ## check if the struct property is set properly
+        @test x.vaccinated == true  ## it should ofcourse change the vaccination status of the individual
+    end
+
+    # since firstyearinfection was set to true, we can calculate the total number of duration days
+    totalduration = P.duration_first[x.sex] + P.duration_recur[x.sex]*(r.numofepisodes - 1)
+
+    # check number of legions. go through entire population. 
+    # ...divide number of episodes by number of legions to see if around 30%
+end
+
 
 @testset "MISC" begin
     ## test the age groups.. should be from 1-4
@@ -268,4 +295,8 @@ end
     # ## test model parameters -- distribution of ethnicities
     # c = [P.eth_white, P.eth_black, P.eth_asian, P.eth_hispanic]
     # @test sum(c) == 1
+
+    # test the default parameters
+    th.P = th.ModelParameters()
+    @test P.vac_coverage == 0.0
 end

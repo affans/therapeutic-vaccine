@@ -4,7 +4,7 @@
 @enum GRP WHITE=1 BLACK=2 ASIAN=3 HIS=4
 
 ## MAIN SYSTEM PARAMETER
-@with_kw struct ModelParameters @deftype Float64
+@with_kw mutable struct ModelParameters @deftype Float64
     # general parameters
     sim_time::Int64 = 20  ## ten years in 6 month intervals. 
 
@@ -22,15 +22,21 @@
     asymp_reduction = 1.0 # 0.50
     incubation = 4.3   ## average incubation days.
 
+    ## if these change to a distribution, we have to make the changes in runtests.jl as well otherwise those tests will fail
     duration_first::Dict{SEX, Int64} = Dict(MALE => 17, FEMALE => 20)
     duration_recur::Dict{SEX, Int64} = Dict(MALE => 10, FEMALE => 12)
 
     ## number of recurrances: 0 = 11%, 1-6: 51% (so 51/6 = 8.5%)
     num_recur_firstyear::Array{Float64} = [0.11, 0.085, 0.085, 0.085, 0.085, 0.085, 0.085, 0.095, 0.095, 0.095, 0.095]
-    num_recur_thereafter::Array{Float64} = [0.20, 0.11, 0.11, 0.11, 0.11, 0.11, 0.11, 0.025, 0.025, 0.025, 0.025]
+    num_recur_thereafter::Array{Float64} = [0.20, 0.11, 0.11, 0.11, 0.11, 0.11, 0.11, 0.025, 0.025, 0.025, 0.025, 0.04]
+    ## the 0.04 at the end there added by me.... 
 
-    pct_days_shed_symp = 0.69
-    pct_days_shed_asymp = 0.10
+    pct_shed_legions = 0.69
+    pct_shed_nolegions = 0.12
+    pct_shed_asymp = 0.02
+
+    vac_efficacy = 1.0
+    vac_coverage = 0.0   ## set to 0.0 to turn vaccine off
 end
 
 struct SimData
@@ -39,6 +45,7 @@ struct SimData
     partners::DataFrame
     episodes::DataFrame
     transmission::DataFrame
+
     function SimData(P)
         ## set up dataframes. when setting up data frames for yearly level data, add 1 to sim_time for the initial year
 
@@ -55,6 +62,7 @@ struct SimData
                                                    :durationasymp, :durationshed_asymp, :numofsex_asymp])
 
         transmission = DataFrame([Int64, Int64], [:susc_inf, :dt], P.sim_time)
+        #vaccination = DataFrame([Int64, Int64], [:id])
         new(prev, partners, episodes, transmission)
     end
 end
@@ -62,9 +70,7 @@ end
 mutable struct Human
     id::Int64
     health::HEALTH
-    legions::Bool
-    recur::Int64 ## number of recurrances in a time step (~1 year?)
-
+    
     ## demographics
     age::Int64
     sex::SEX # 0: female, 1:male   
@@ -75,7 +81,8 @@ mutable struct Human
     married::Bool
 
     ## whether infection happens in first year.
-    firstyearinfection::Bool # infection first year 
+    firstyearinfection::Bool # infection first year
+    vaccinated::Bool  # would get vaccinated after first episode
 
     Human() = new()
 end
@@ -100,8 +107,7 @@ function init_human(h::Human)
     grpdist = Categorical([P.grp_white, P.grp_black, P.grp_asian, P.grp_hispanic])
   
     h.health = SUSC
-    h.legions = rand() < P.pct_legions ? true : false
-
+   
     # demographics -- this is where most of the allocations happen
     h.age = rand(agebraks[rand(agedist)])
     h.sex = rand() < 0.5 ? MALE : FEMALE
@@ -113,7 +119,7 @@ function init_human(h::Human)
 
     ## if they get infected, then it's going to be their first year of infection. 
     h.firstyearinfection = true
-
+    h.vaccinated = false
     return h
 end
 
