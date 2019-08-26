@@ -17,7 +17,7 @@
     pct_partnerchange = 0.50 ## not implemented yet
 
     # disease parameters.
-    pct_legions = 0.30 ## percentage of people married at the start of sims
+    pct_legions = 0.30 ## percentage of an episode having legions
     beta = 1.0 #0.01
     asymp_reduction = 1.0 # 0.50
     incubation = 4.3   ## average incubation days.
@@ -35,6 +35,7 @@
     pct_shed_nolegions = 0.12
     pct_shed_asymp = 0.02
 
+    vaccine_on::Bool = false
     vac_efficacy = 1.0
     vac_coverage = 0.0   ## set to 0.0 to turn vaccine off
 end

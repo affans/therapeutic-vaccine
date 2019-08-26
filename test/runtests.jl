@@ -1,8 +1,9 @@
-using Test, thvaccine
+using Test, thvaccine, Statistics
 
 const th = thvaccine
 const gridsize = length(thvaccine.humans)
-@testset "Demo" begin
+
+@testset "DEMO" begin
     ## init_human test
     x = th.Human()
     th.init_human(x, 1)
@@ -80,7 +81,7 @@ const gridsize = length(thvaccine.humans)
     
 end
 
-@testset "Part" begin
+@testset "PART" begin
     ## check whether the struct for unique partners works.
     a = th.Partner(1, 2)
     b = th.Partner(2, 1)
@@ -208,6 +209,17 @@ end
     a = [p.a for p in pairs]
     b = [p.b for p in pairs]
     @test a ∉ b && b ∉ a
+
+    ## test if in the init population, all the firstyearinfection is set to true
+    th.init_population()
+    clear = true
+    for i = 1:length(humans)
+        if humans[i].firstyearinfection == false
+            clear = false
+        end
+    end
+    @test clear == true
+
 end
 
 @testset "IDIS" begin
@@ -258,33 +270,92 @@ end
 
 @testset "YEAR" begin
     ## in this test set, we test the main logic of the disease transfer functions. 
-    th.P = th.ModelParameters()
+    #th.P = th.ModelParameters(vac_coverage = 0.0)  ## set coverage to zero
     th._reset() ## reset the population.
-     
-    ## pick a human. dosn't matter which one and run the function
-    id = findfirst(x -> x.health == th.INF, humans)
-    x = humans[id]
-    x.firstyearinfection = true ## force these just incase
-    x.vaccinated = false
-
-    # run the function
-    r = th._yeardis(id)
-
-    ### TO DO ON SAT 25. TEST _yeardis() properly. 
     
-    # check various properties are set 
-    @test r.vac_status == false
-    if r.numofepisodes > 0 # only way someone gets vaccinated
-        @test r.vaccinated == true  ## check if the struct property is set properly
-        @test x.vaccinated == true  ## it should ofcourse change the vaccination status of the individual
+    # Check _get_episodes function. 
+    # Not much to test here. Test if the function even works.
+    # See if the proportion of number of zeros is the same as what's defined in the parameters
+    eps_a = [_get_episodes(humans[i]) for i = 1:length(humans)]
+    eps_z = findall(x -> x == 0, eps_a)  ## find the number of zeros.. 
+    ## this _reset() was run, all humans should have firstyearinfection = true, so we check against the right distribtion
+    @test isapprox(length(eps_z)/length(humans), P.num_recur_firstyear[1]; atol=0.05)
+
+    # Keep checking _get_episodes with vaccine turned on. 
+    # Here we are checking whether the maximum number of episodes is equal to one. 
+    _reset()
+    th.P.vaccine_on = true
+    eps_a = [_get_episodes(humans[i]) for i = 1:length(humans)]
+    @test maximum(eps_a) == 1
+
+    # manually make everyone vaccinated. 
+    # no one should have any symptomatic periods if they are vaccinated.
+    _reset()
+    for x in humans 
+        x.firstyearinfection = false ## have to turn this off if vaccinated = true... otherwise it throws an error
+        x.vaccinated = true 
+    end
+    eps_a = [_get_episodes(humans[i]) for i = 1:length(humans)]
+    @test maximum(eps_a) == 0
+    
+
+    ## checking the natural history of disease function
+    ## testing function: _yeardis()
+
+    # basic setup
+    _reset()  # reset the population. 
+    x = humans[th.fs()]    #find the first sick person. 
+   
+    th.P.vaccine_on = false # make sure vaccine is off
+    r = th._yeardis(x)      # r holds the results. 
+
+    # since this is going to be firsttimeinfection = true for individual x, check if its turned of
+    if r.numofepisodes > 0 
+        @test x.firstyearinfection == false ## no more first year infection
+        @test x.vaccinated == false ## vaccine is turned off. 
+        @test r.vaccinated == false  ## the function shouldn't return that person is vaccinated.     
+        @test r.duration_symp > 0 ## there should be a few duration days... actually can calculate this exactly since duration is not based on distribution 
+    end 
+
+    ## let's turn on vaccine now. 
+    _reset()  # reset the population.    
+    th.P.vaccine_on = true # make sure vaccine is on
+   
+    allinf = findall(x -> x.health == th.INF, humans)
+    res = map(allinf) do x 
+        th._yeardis(humans[x]) ## this runs the natural history of disease for every INF.
+    end
+    # test if vaccination is set for every single person 
+    for x in res
+        if x.numofepisodes > 0 
+            @test humans[x.id].vaccinated == true
+        else
+            @test humans[x.id].vaccinated == false
+        end       
     end
 
-    # since firstyearinfection was set to true, we can calculate the total number of duration days
-    totalduration = P.duration_first[x.sex] + P.duration_recur[x.sex]*(r.numofepisodes - 1)
+    
+    # check number of legions. go through entire population.
+    ## turn vaccine off.
+    # th._reset() ## reset the population.
+    # th.P.vaccine_on = false
+    
+    # m = map(humans) do x
+    #     r = _yeardis(x.id)
+    #     if r.numofepisodes > 0 
+    #         return r.numoflegions/r.numofepisodes
+    #     else 
+    #         return missing
+    #     end    
+    # end
+    # mavg = mean(collect(skipmissing(m)))
+    # @test isapprox(mavg, P.pct_legions; atol=0.05)  # 5% tolerance is high.
 
-    # check number of legions. go through entire population. 
-    # ...divide number of episodes by number of legions to see if around 30%
+
+    ### check that if vaccination is turned off, no one is getting their .isvaccinated property true
+
 end
+
 
 
 @testset "MISC" begin
@@ -297,6 +368,4 @@ end
     # @test sum(c) == 1
 
     # test the default parameters
-    th.P = th.ModelParameters()
-    @test P.vac_coverage == 0.0
 end

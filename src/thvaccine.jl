@@ -27,14 +27,6 @@ const P = ModelParameters()
 const humans = Array{Human}(undef, gridsize)
 const verbose = false ## not used
 
-function set_params(params) 
-    println("setting P")
-    P = params  ## does this create a local variable??
-    println(P)
-    return 0
-end
-#export set_params 
-
 main() = main(1)
 function main(simnumber::Int64) 
     #Random.seed!(simnumber) 
@@ -272,24 +264,51 @@ function pair_stats()
 end
 export pair_stats
 
+
+function _infsusc(sick::Human, susc::Human)
+    ## error checks
+    sick.health != INF  && error("infected person is not infected.")
+    susc.health != SUSC && error("susceptible person is not susceptible.")
+    sickr = _yeardis(sick) 
+    dt = check_transfer_disease(sickr.numofsex_symp, sickr.numofsex_asymp)
+    if dt 
+        #susc.health = INF 
+        #susc.firstyearinfection = true
+        suscr = _yeardis(susc)
+        dump(suscr)
+        println("disease transferred successfully")
+    end
+    dump(sickr)
+end
+
 ## HAVE TO REWRITE THE TRANSMISSION + VACCINE FUNCTIONS.
-function transmission(year = 1)
+function transmission(year = 1; record_data = false)
     ## we are checking disease transmission between each pair.
     ## if it's a SUSC/INF then there is chance of transmission
     ## if it's a INF/INF then it's just a matter of data collection.
-    ## if its a SUSC/SUSC, then everything is irrelevant. 
-
-    ## TO DO: In an SUSC/INF pair, if the susc get's infected... run _dis() for them also.
+    ## if its a SUSC/SUSC, then everything is irrelevant.
     
-    #dfnames = [:year, keys(nt)...]
-    #df = DataFrame([Int64 for i = 1:8], dfnames, 0)
+     # for each pair
+    # if inf/susc -> see if the inf will transfer disease in the whole year 
+    # -- record the DiseaseInfo()
+    # -- if disease is successfully transferred, the partner is now infected as well. 
+    # -- record DiseaseInfo() -- it could very well be  the partner will have episodes and also recieve vaccine. 
+    
+    # -- these partners may split up and join other susceptibles (but since they are vaccinated nothing will happen)
+
+    ## get the sick pairs. these could be inf/susc or inf/inf
     sick_pairs = get_partners(onlysick = true)
             
     ctr_xor = 0   ## total number of SUSC/INF pairs
+    ctr_inf = 0   ## total number of INF/INF pairs.
     ctr_dis = 0   ## total number of the SUSC/INF pairs that got sick. 
+
     for p in sick_pairs
         p1health = humans[p.a].health 
         p2health = humans[p.b].health
+
+ 
+
         if xor(p1health == INF, p2health == INF)
             ctr_xor += 1
             if p1health == INF && p2health != INF
@@ -318,7 +337,6 @@ export transmission
 struct DiseaseInfo
     id::Int64
     pd::Int64
-    vac_status::Int64     ## vaccination status of the individual
     vaccinated::Int64     ## whether the individual was vaccinated
     numofepisodes::Int64  ## if vaccine is turned on, the "numofepisodes" and "numoflegions" woulnd't change.
     numoflegions::Int64   ## -- however the effect of vaccine is reflected in "duration_symp" 
@@ -331,17 +349,7 @@ struct DiseaseInfo
     numofsex_asymp::Int64
 end
 
-function _pair()
-    # for each pair
-    # if inf/susc -> see if the inf will transfer disease in the whole year 
-    # -- record the DiseaseInfo()
-    # -- if disease is successfully transferred, the partner is now infected as well. 
-    # -- record DiseaseInfo() -- it could very well be  the partner will have episodes and also recieve vaccine. 
-    
-    # -- these partners may split up and join other susceptibles (but since they are vaccinated nothing will happen)
-end
-
-function transfer_disease(symp_t, asymp_t)
+function check_transfer_disease(symp_t, asymp_t)
     # symp_t:  number of sexual encounters during symptomatic phase.
     # asymp_t: number of sexual encounters during asymptomatic phases. Beta is reduced by 50%
     dt = false 
@@ -358,50 +366,70 @@ function transfer_disease(symp_t, asymp_t)
     end 
     return dt
 end
-export transfer_disease
+export check_transfer_disease
 
-function _yeardis(id)
-    # this function calculates the natural history of disease (i.e # of episodes, total shedding days, ...) 
-    # for any individual. It correctly considers the effect of vaccine.
-    # This function DOES NOT check for disease transfer. Use another function for that
-    # IT DOES NOT CHECK WHETHER THE PERSON IS INFECTED OR SUSC. Add error() function for this. 
+function _get_episodes(x::Human)
+    # calculate the number of symptomatic episodes individual will have
+    numofepisodes = 0
+    (x.vaccinated && x.firstyearinfection) && error("person is in first year of infection but is vaccinated")
+    if x.vaccinated
+        numofepisodes = 0 ## if already vaccinated, no episodes. 
+    else
+        if x.firstyearinfection
+            numofepisodes = rand(Categorical(P.num_recur_firstyear) ) - 1
+
+            ## if vaccine is turned on in the model, the number of episodes is reduced to 1.
+            ## i.e. the individual will have one episode and then vaccinated
+            if numofepisodes > 0 && P.vaccine_on
+                numofepisodes = 1
+            end
+        else    
+            numofepisodes = rand(Categorical(P.num_recur_thereafter)) - 1
+            ## we don't have to check for vaccine_on here.. if vaccine is on in the simulations, 
+            ## they would've x.vaccinated = true after their first year of infection 
+            ## and numofepisodes = 0
+        end 
+    end
+    return numofepisodes
+end
+export _get_episodes
+
+function _yeardis(x::Human)
+    # this function calculates the natural history of disease 
+    # it does the following:
+    # -> calculates the total number of sexual encounters one would have in symptomatic/asymptomatic periods
+    # -> if vaccination is on, it correctly sets x.vaccinated property for individuals. 
+    # -> it returns an object of the information which can be used for data recording. 
+    # it does NOT check for disease transfer. 
+    x.health != INF && error("person is not sick")
     
-    # initialize varialbes
-    x = humans[id]
-    oldvax = x.vaccinated ## record this information before it possibly changes
-    newvax = false  ## just so we can collect the data. can't use x.vaccinated since they maybe vaccinated from before
-    recur_dist = x.firstyearinfection ? Categorical(P.num_recur_firstyear) : Categorical(P.num_recur_thereafter)
-    numofepisodes = rand(recur_dist) - 1  ## since julia is one based.
+    numofepisodes = _get_episodes(x) 
+    newvax = false
+
     # data statistic variables
-    numoflegions = 0 
+    numoflegions = 0    ## total number of legions in all symptomatic episodes. 
     ds = zeros(Int64, numofepisodes) # array for days of symptomatic (in days) per episodes
     ss = zeros(Int64, numofepisodes) # num of days shedding
     numofsex_symp = 0                # total num of sexual encounters in the shedding weeks
 
     ## main logic of the function.
-    if numofepisodes > 0 # if the num of episodes is 0, whole year is asymptomatic
-        ## logic for the first episode
+    if numofepisodes > 0 
         if x.firstyearinfection 
             ds[1] = P.duration_first[x.sex]
-            x.firstyearinfection = false  # person got first symptomatic episode. turn this off. 
-            if rand() < P.vac_coverage    # a parameter to see if vaccine is on or off. Also works as coverage.
-                x.vaccinated = true
-                newvax = true 
-            end
+            x.firstyearinfection = false  # person got symptomatic episode in this year. turn this off.
         else 
-            # if person is vaccinated, all recurrances are set to zero.
-            ds[1] = P.duration_recur[x.sex]*(1 - x.vaccinated)  
+            ds[1] = P.duration_recur[x.sex] 
         end        
         if rand() < P.pct_legions
-            numoflegions += 1
+            numoflegions += 1 
             ss[1] = Int(round(ds[1]*P.pct_shed_legions))
         else
             ss[1] = Int(round(ds[1]*P.pct_shed_nolegions))
         end
- 
+        
         # now that we've decided for the first episode, what about the rest?
-        for i = 2:numofepisodes
-            ds[i] = P.duration_recur[x.sex]*(1 - x.vaccinated)  
+        @inbounds for i = 2:numofepisodes
+        ds[i] = P.duration_recur[x.sex] 
             if rand() < P.pct_legions
                 numoflegions += 1
                 ss[i] = Int(round(ds[i]*P.pct_shed_legions))
@@ -410,90 +438,36 @@ function _yeardis(id)
             end
         end
 
-        ## IF VACCINE HAPPENS, THE NUMOFEPISODES AND NUMOFLEGIONS 
-        ## SHOULD CHANGE. (Really NUMOFEPISODES = 1 since vaccine is given after the first one)
-        ## BUT THESE NUMBERS ARE ALREADY SAMPLED. 
-        ## THE CODE IS CORRECT! The effect of vaccine is shown in "duration_symp" and "duration_asymp" days. 
-        ## which is what we really need for cost-effectiveness.
-
-
         ## now add up all the days the person is shedding over all the episodes 
         ## convert to weeks, and calculate how many times they will have sexual encounter in those weeks. 
         ## sum up the total sexual encounters.
         tss = Int(round(sum(ss)/7)) ## total days you are shedding (in weeks)
         ns = [calculatesexfrequency(x.age, x.sex) for i=1:tss]
-        numofsex_symp = sum(ns)       
+        numofsex_symp = sum(ns)     
+
+        if P.vaccine_on
+            x.vaccinated = true
+            newvax = true
+        end
     end
-    
+
     # repeat the same calculation except for asymptomatic. I do this calculation in one line. 
     # numofdays asymptomatic * percent of shedding(=0.02) * vaccine efficacy: rounded and converted to weeks
+    # note this requires if the person is vaccinated...
     vacfactor = x.vaccinated * P.vac_efficacy
     sa = Int(round( ((365 - sum(ds))*P.pct_shed_asymp*(1 - vacfactor))/7 ))
     numofsex_asymp = sum([calculatesexfrequency(x.age, x.sex) for i=1:sa])
        
-    res = DiseaseInfo(id, x.partner, oldvax, newvax, numofepisodes, numoflegions, sum(ds), sum(ss), numofsex_symp, 
+    res = DiseaseInfo(x.id, x.partner, newvax, numofepisodes, numoflegions, sum(ds), sum(ss), numofsex_symp, 
                         sa, numofsex_asymp)
         
     return res
 end
 export _yeardis
 
-function _dis(id, year = 1)
-    #0.000436 seconds (1.45 k allocations: 76.109 KiB) without the ret allocation + push to dataframe
-    x = humans[id]
-    xpartner = humans[id].partner
-    dt = false ## disease transfer flag
-
-    if x.health != INF ## should not happen in the main course of the simulations.
-        return dt
-    end
-    recur_dist = x.firstyearinfection ? Categorical(P.num_recur_firstyear) : Categorical(P.num_recur_thereafter)
-    numofepisodes = rand(recur_dist) - 1  ## since julia is one based. 
-
-    ## initialize variables 
-    durationsymp = 0
-    durationshed_symp =  0
-    numofsex_symp = 0
-    if numofepisodes > 0 
-        if x.firstyearinfection  ## this really shouldnt make a difference.               
-            durationsymp = P.duration_first[x.sex] + P.duration_recur[x.sex]*(numofepisodes - 1)
-        else 
-            durationsymp =  P.duration_recur[x.sex]*(numofepisodes)
-        end
-        durationshed_symp =  Int(round(P.pct_days_shed_symp*durationsymp / 7))
-        # sample for each week of symtpomatic shedding the number of times they have sex
-        numofsex_perweek_symp = [calculatesexfrequency(x.age, x.sex) for i=1:durationshed_symp]
-        numofsex_symp = reduce(+, numofsex_perweek_symp)
-
-        # for this sick person, this has all happened within the span of one year.
-        firstyearinfection = false
-    end
-    ## now deal with all the days the individual is asymptmatic.
-    ## this part is repeated from above... can be put in it's own function. 
-    durationasymp = 365 - (durationsymp)
-    durationshed_asymp =  Int(round(P.pct_days_shed_asymp*(durationasymp) / 7))
-
-    numofsex_perweek_asymp = [calculatesexfrequency(x.age, x.sex) for i=1:durationshed_asymp]
-    numofsex_asymp = reduce(+, numofsex_perweek_asymp)
-    for i = 1:numofsex_asymp
-        if rand() < P.beta*P.asymp_reduction
-            dt = true
-        end
-    end 
-
-        # check if disease will transfer in these sexual encounters. 
-    for i = 1:numofsex_symp
-        if rand() < P.beta
-            dt = true
-        end
-    end
-    
-    ## return data for collection. 
-    #ret = (year, id, xpartner, dt, numofepisodes, 
-    #        durationsymp, durationshed_symp, numofsex_symp, 
-    #        durationasymp, durationshed_asymp, numofsex_asymp)
-    #push!(dat.episodes, ret)
-    return dt
-end 
+function fs()
+    findfirst(x -> x.health == INF, humans)
+end
+export fs
 
 end # module
