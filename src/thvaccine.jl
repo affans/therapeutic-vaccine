@@ -500,36 +500,7 @@ function fs()
 end
 export fs
 
-function calibration()
-
-end
-function _calibration(numofsims)
-    println("running calibration with total sims = $numofsims")
-
-    betas = round.([0.01 + 0.005i for i in 0:15]; digits = 3)
-    dt = DataFrame([Float64, Float64], [:betas, :average])
-    for b in betas
-        println("Testing β=$b")
-        P.beta = b
-        res = @showprogress map(1:numofsims) do x
-            main(x)
-        end
-        arr = zeros(Float64, numofsims)
-        for i in 1:numofsims
-            arr[i] = res[i].prevalence[20, :Total]
-        end
-        ap = mean(arr)
-        println("average prevalence at 20 years = $ap")
-        push!(dt, (b, ap))
-    end
-    # dt = DataFrame([Int64 for i = 1:5], [Symbol("sim$i") for i = 1:5], 20)
-    # #insertcols!(avg_prev, 6, :avg => 0)
-    # for i = 1:5
-    #     dt[!, Symbol("sim$i")] .= res[i].prevalence[:, :Total]
-    # end    
-    return dt
-end
-export _calibration
+#export _calibration
 
 
 end # module
