@@ -28,11 +28,13 @@ const humans = Array{Human}(undef, gridsize)
 const verbose = false ## not used
 
 main() = main(1)
-function main(simnumber::Int64) 
+function main(simnumber::Int64, vaccineon = false) 
     #Random.seed!(simnumber) 
     
-    global dat = SimData(P) ## we can't use const here at the global level since each simulation needs to be on its own
-    global yr ## make the year available to all functions
+    P.vaccine_on = vaccineon
+    println("Vaccination is $vaccineon")
+    dat = SimData(P) ## we can't use const here at the global level since each simulation needs to be on its own
+
     #show(dat.prevalence) #this shows that at every run of the function main(), the data is a new object
     # setup initial simulation
     init_population()
@@ -41,19 +43,19 @@ function main(simnumber::Int64)
     init_disease()
     
     yr = 1                ## record the initial data
-    record_prevalence(yr) ## record prevalence data
+    record_prevalence(dat, yr) ## record prevalence data
 
     for i = 1:P.sim_time # step through discrete time (add one to sim_time since starting at 2)
         yr = i
-        record_prevalence(yr) ## record prevalence data
-        transmission(yr)   
+        record_prevalence(dat, yr) ## record prevalence data
+        transmission(dat, yr)   
         age()                
         create_partners()
     end 
     return dat ## return the data structure.
 end
 
-function record_prevalence(year)
+function record_prevalence(dat, year)
     ## this just runs some queries for data collection.
     ## make sure dat is initialized as a SimData object.
     total = length(findall(x -> x.health == INF, humans))
@@ -74,7 +76,7 @@ function record_prevalence(year)
     ## enter data in dataframes
 
     dat.prevalence[year, 1:end] .=  (total, totalpartners, ag1, ag2, ag3, ag4, wte, blk, asn, his, M, F)
-    dat.partners[year, 1:end] .=  partner_info()
+    dat.partners[year, 1:end] .=  pair_stats()
 end
 export record_prevalence
 
@@ -96,6 +98,9 @@ function age()
         if h.age > 49 
             ct += 1
             exit_population(h)
+        end
+        if h.age == h.vaccineexpiry 
+            _setvaccine(h, false)
         end
     end
     return ct
@@ -217,37 +222,6 @@ function get_partners(; onlysick = false)
 end
 export get_partners
 
-function _resetdemo()
-    ## helper function forr esetting the population while debugging.
-    init_population()
-    create_partners()
-    marry()
-end
-
-function _resetdisease()
-    init_disease()
-end
-
-function _reset()
-    _resetdemo()
-    _resetdisease()
-end
-export _reset, _resetdemo, _resetdisease
-
-function init_disease()
-    ## initialize the disease based on data distribution
-    cnt = 0
-    for x in humans
-        rn = rand()
-        prb = disease_probability(x.age, x.sex, x.grp)
-        if rn < prb 
-            x.health = INF
-            cnt += 1
-        end
-    end
-    return cnt
-end
-export init_disease
 
 function pair_stats()
     all_pairs = get_partners()  
@@ -264,31 +238,70 @@ function pair_stats()
 end
 export pair_stats
 
+function init_disease()
+    ## initialize the disease based on data distribution
+    cnt = 0
+    for x in humans
+        rn = rand()
+        prb = disease_probability(x.age, x.sex, x.grp)
+        if rn < prb 
+            x.health = INF
+            cnt += 1
+        end
+    end
+    return cnt
+end
+export init_disease
+
+
+
+function _infinf(sick1::Human, sick2::Human)
+    sick1.health != INF && error("infected person is not infected.")
+    sick2.health != INF && error("infected person is not infected.")
+
+    sick1r = _naturalhistory(sick1)
+    sick2r = _naturalhistory(sick2)
+
+    return (false, sick1r, sick2r) 
+    ## return false as first element since disease is not transferred. 
+    ## and to keep it consistent with _infsusc() function as well. 
+    ## ofcourse it's false... it's a inf/inf scenario.
+end
+export _infinf
 
 function _infsusc(sick::Human, susc::Human)
     ## error checks
     sick.health != INF  && error("infected person is not infected.")
     susc.health != SUSC && error("susceptible person is not susceptible.")
-    sickr = _yeardis(sick) 
+
+    sickr = _naturalhistory(sick) ## run natural history of disease. 
     dt = check_transfer_disease(sickr.numofsex_symp, sickr.numofsex_asymp)
     if dt 
-        #susc.health = INF 
-        #susc.firstyearinfection = true
-        suscr = _yeardis(susc)
-        dump(suscr)
-        println("disease transferred successfully")
+        ## disease is passed onto the susceptible person
+        susc.health = INF 
+        susc.firstyearinfection = true
+        suscr = _naturalhistory(susc) ## run natural history of disease.
+        return (dt, sickr, suscr) 
     end
-    dump(sickr)
+    # if disease is not transferred, return a zero'ed object (with proper id set) even if nothing happens. 
+    # initially I was returning Nothing but this way we can have two rows per inf/susc pair
+    return (dt, sickr, NaturalHistory(susc.id, sick.id, [0 for i = 1:(length(fieldnames(NaturalHistory)) - 2)]...))    
 end
+export _infsusc
 
-## HAVE TO REWRITE THE TRANSMISSION + VACCINE FUNCTIONS.
-function transmission(year = 1; record_data = false)
-    ## we are checking disease transmission between each pair.
-    ## if it's a SUSC/INF then there is chance of transmission
-    ## if it's a INF/INF then it's just a matter of data collection.
-    ## if its a SUSC/SUSC, then everything is irrelevant.
-    
-     # for each pair
+
+function unpack_naturalhistory(dt, rtuple)
+    ## this is a helper function that unpacks the NaturalHistory() object
+    ## and creates a tuple so it can be pushed to a data frame. 
+    for i in fieldnames(NaturalHistory)
+        rtuple = (rtuple..., getfield(dt, i))
+    end
+    return rtuple
+end
+export unpack_naturalhistory
+
+function transmission(dataobj::SimData, year = 1)
+    # for each pair
     # if inf/susc -> see if the inf will transfer disease in the whole year 
     # -- record the DiseaseInfo()
     # -- if disease is successfully transferred, the partner is now infected as well. 
@@ -304,50 +317,51 @@ function transmission(year = 1; record_data = false)
     ctr_dis = 0   ## total number of the SUSC/INF pairs that got sick. 
 
     for p in sick_pairs
-        p1health = humans[p.a].health 
-        p2health = humans[p.b].health
+        p1 = humans[p.a]
+        p2 = humans[p.b]
+        p1health = p1.health 
+        p2health = p2.health
 
- 
+        if p1health == INF && p2health == INF 
+            ctr_inf += 1
+            rdt =  _infinf(p1, p2) #returns a Tuple{Bool, NaturalHistory, NaturalHistory}
+            
+            ## record the data for both people. rdt[2] and rdt[3] contains the data objects to be unpacked.
+            ## care to make sure p1t, p2t are properly set.
+            ## unpack the results (by appending the fields to an already existing tuple)
+            p1t = unpack_naturalhistory(rdt[2], (year, 1, Int(p1.sex), 0))
+            p2t = unpack_naturalhistory(rdt[3], (year, 1, Int(p2.sex), 0))
+
+            push!(dataobj.episodes, p1t)
+            push!(dataobj.episodes, p2t)
+        end 
 
         if xor(p1health == INF, p2health == INF)
             ctr_xor += 1
             if p1health == INF && p2health != INF
-                sick = p.a
-                susc = p.b 
+                sick = p1
+                susc = p2
             end
             if p1health != INF && p2health == INF
-                sick = p.b
-                susc = p.a
+                sick = p2
+                susc = p1
             end
-            dta = _dis(sick, year)
-            if dta 
-                ctr_dis += 1
-                humans[susc].health = INF 
-                humans[susc].firstyearinfection = true
-                _dis(susc, year)  ## nothing will happen. Just need to record the data. 
-            end
+            rdt = _infsusc(sick, susc)
+            rdt[1] && (ctr_dis += 1)
+            ## record the data for both people. rdt[2] and rdt[3] contains the data objects to be unpacked.
+            ## care to make sure p1t, p2t are properly set.
+            ## unpack the results (by appending the fields to an already existing tuple)
+            p1t = unpack_naturalhistory(rdt[2], (year, 1, Int(p1.sex), rdt[1]))
+            p2t = unpack_naturalhistory(rdt[3], (year, 1, Int(p2.sex), 0))
+            
+            push!(dataobj.episodes, p1t)
+            push!(dataobj.episodes, p2t)
         end
     end
-    dat.transmission[year, 1:end] .= (ctr_xor, ctr_dis)
-    #println("total: $ctr_pair, xor'ed: $ctr_xor, diseased: $ctr_dis")
-    return ctr_xor, ctr_dis
+    return ctr_inf, ctr_xor, ctr_dis
 end
 export transmission
 
-struct DiseaseInfo
-    id::Int64
-    pd::Int64
-    vaccinated::Int64     ## whether the individual was vaccinated
-    numofepisodes::Int64  ## if vaccine is turned on, the "numofepisodes" and "numoflegions" woulnd't change.
-    numoflegions::Int64   ## -- however the effect of vaccine is reflected in "duration_symp" 
-    duration_symp::Int64
-    shedding_symp::Int64
-    numofsex_symp::Int64
-
-    #duration_asymp::Int64
-    shedding_asymp::Int64
-    numofsex_asymp::Int64
-end
 
 function check_transfer_disease(symp_t, asymp_t)
     # symp_t:  number of sexual encounters during symptomatic phase.
@@ -369,7 +383,9 @@ end
 export check_transfer_disease
 
 function _get_episodes(x::Human)
-    # calculate the number of symptomatic episodes individual will have
+    # calculate the number of symptomatic episodes individual will have.
+    # assumption: that vaccinated individuals have no recurrances. 
+    # this can easily be changed here.
     numofepisodes = 0
     (x.vaccinated && x.firstyearinfection) && error("person is in first year of infection but is vaccinated")
     if x.vaccinated
@@ -394,13 +410,26 @@ function _get_episodes(x::Human)
 end
 export _get_episodes
 
-function _yeardis(x::Human)
+@inline function _setvaccine(x::Human, on)
+    if on
+        x.vaccinated = true
+        x.vaccineexpiry = x.age + P.vac_waningtime
+    else 
+        x.vaccinated = false
+        x.vaccineexpiry = 0
+    end
+end
+
+function _naturalhistory(x::Human)
     # this function calculates the natural history of disease 
     # it does the following:
     # -> calculates the total number of sexual encounters one would have in symptomatic/asymptomatic periods
     # -> if vaccination is on, it correctly sets x.vaccinated property for individuals. 
     # -> it returns an object of the information which can be used for data recording. 
     # it does NOT check for disease transfer. 
+
+    # if vaccine also lowers the number of shedding days, multiply ss[i] by x.vaccinated.
+
     x.health != INF && error("person is not sick")
     
     numofepisodes = _get_episodes(x) 
@@ -445,8 +474,9 @@ function _yeardis(x::Human)
         ns = [calculatesexfrequency(x.age, x.sex) for i=1:tss]
         numofsex_symp = sum(ns)     
 
+        
         if P.vaccine_on
-            x.vaccinated = true
+            _setvaccine(x, true)
             newvax = true
         end
     end
@@ -458,12 +488,12 @@ function _yeardis(x::Human)
     sa = Int(round( ((365 - sum(ds))*P.pct_shed_asymp*(1 - vacfactor))/7 ))
     numofsex_asymp = sum([calculatesexfrequency(x.age, x.sex) for i=1:sa])
        
-    res = DiseaseInfo(x.id, x.partner, newvax, numofepisodes, numoflegions, sum(ds), sum(ss), numofsex_symp, 
+    res = NaturalHistory(x.id, x.partner, newvax, numofepisodes, numoflegions, sum(ds), sum(ss), numofsex_symp, 
                         sa, numofsex_asymp)
         
     return res
 end
-export _yeardis
+export _naturalhistory
 
 function fs()
     findfirst(x -> x.health == INF, humans)

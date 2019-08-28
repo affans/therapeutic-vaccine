@@ -17,7 +17,7 @@
     pct_partnerchange = 0.50 ## not implemented yet
 
     # disease parameters.
-    pct_legions = 0.30 ## percentage of an episode having legions
+    
     beta = 1.0 #0.01
     asymp_reduction = 1.0 # 0.50
     incubation = 4.3   ## average incubation days.
@@ -31,41 +31,15 @@
     num_recur_thereafter::Array{Float64} = [0.20, 0.11, 0.11, 0.11, 0.11, 0.11, 0.11, 0.025, 0.025, 0.025, 0.025, 0.04]
     ## the 0.04 at the end there added by me.... 
 
-    pct_shed_legions = 0.69
+    ## percentage of shedding in symptomatic episodes with/without legions.
+    pct_legions = 0.30 ## percentage of an episode having legions
+    pct_shed_legions = 0.69  
     pct_shed_nolegions = 0.12
     pct_shed_asymp = 0.02
 
     vaccine_on::Bool = false
     vac_efficacy = 1.0
-    vac_coverage = 0.0   ## set to 0.0 to turn vaccine off
-end
-
-struct SimData
-    # data frames
-    prevalence::DataFrame
-    partners::DataFrame
-    episodes::DataFrame
-    transmission::DataFrame
-
-    function SimData(P)
-        ## set up dataframes. when setting up data frames for yearly level data, add 1 to sim_time for the initial year
-
-        ## setup prevalence dataframe
-        _names = Symbol.(["Total","TotalPartners", "Ag1", "Ag2", "Ag3", "Ag4", "Wte", "Blk", "Asn", "His", "M", "F"])
-        prev = DataFrame([Int64 for i = 1:length(_names)], _names, P.sim_time)
-        prev .= 0
-
-        partners = DataFrame([Int64 for i = 1:3], [:partners, :partners_sick, :ctr_xor], P.sim_time)
-        partners .= 0
-        
-        episodes = DataFrame([Int64 for i = 1:11], [:year, :id, :partner, :dt, :numofepisodes, 
-                                                   :durationsymp, :durationshed_symp, :numofsex_symp, 
-                                                   :durationasymp, :durationshed_asymp, :numofsex_asymp])
-
-        transmission = DataFrame([Int64, Int64], [:susc_inf, :dt], P.sim_time)
-        #vaccination = DataFrame([Int64, Int64], [:id])
-        new(prev, partners, episodes, transmission)
-    end
+    vac_waningtime::Int64 = 5  ## how long vaccine provides efficacy. 
 end
 
 mutable struct Human
@@ -84,9 +58,50 @@ mutable struct Human
     ## whether infection happens in first year.
     firstyearinfection::Bool # infection first year
     vaccinated::Bool  # would get vaccinated after first episode
-
+    vaccineexpiry::Int64
     Human() = new()
 end
+
+struct NaturalHistory
+    id::Int64
+    pd::Int64
+    
+    vaccinated::Int64     ## whether the individual was vaccinated
+    
+    numofepisodes::Int64  ## if vaccine is turned on, the "numofepisodes" and "numoflegions" woulnd't change.
+    numoflegions::Int64   ## -- however the effect of vaccine is reflected in "duration_symp" 
+    duration_symp::Int64
+    shedding_symp::Int64
+    numofsex_symp::Int64
+
+    #duration_asymp::Int64
+    shedding_asymp::Int64
+    numofsex_asymp::Int64
+end
+
+struct SimData
+    # data frames
+    prevalence::DataFrame
+    partners::DataFrame
+    episodes::DataFrame
+
+    function SimData(P)
+        ## set up dataframes. when setting up data frames for yearly level data, add 1 to sim_time for the initial year
+
+        ## setup prevalence dataframe
+        _names = Symbol.(["Total","TotalPartners", "Ag1", "Ag2", "Ag3", "Ag4", "Wte", "Blk", "Asn", "His", "M", "F"])
+        prev = DataFrame([Int64 for i = 1:length(_names)], _names, P.sim_time)
+        prev .= 0
+
+        partners = DataFrame([Int64 for i = 1:3], [:partners, :partners_sick, :ctr_xor], P.sim_time)
+        partners .= 0
+        
+        episodes = DataFrame([Int64 for i = 1:14], [:year, :type, :sex, :dt, fieldnames(NaturalHistory)...])
+        
+        new(prev, partners, episodes)
+    end
+end
+
 
 #Base.show(io::IO, ::Type{Human}) = print(io, "this is a Human type")
 Base.show(io::IO, ::MIME"text/plain", z::Human) = dump(z)
@@ -121,6 +136,7 @@ function init_human(h::Human)
     ## if they get infected, then it's going to be their first year of infection. 
     h.firstyearinfection = true
     h.vaccinated = false
+    h.vaccineexpiry = 0
     return h
 end
 
@@ -135,4 +151,20 @@ function replace_human(h::Human)
     h.id = oldid
 end
 
+## reset population to default functions.
+function _resetdemo()
+    ## helper function forr esetting the population while debugging.
+    init_population()
+    create_partners()
+    marry()
+end
 
+function _resetdisease()
+    init_disease()
+end
+
+function _reset()
+    _resetdemo()
+    _resetdisease()
+end
+export _reset, _resetdemo, _resetdisease

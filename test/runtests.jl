@@ -270,7 +270,6 @@ end
 
 @testset "YEAR" begin
     ## in this test set, we test the main logic of the disease transfer functions. 
-    #th.P = th.ModelParameters(vac_coverage = 0.0)  ## set coverage to zero
     th._reset() ## reset the population.
     
     # Check _get_episodes function. 
@@ -300,14 +299,14 @@ end
     
 
     ## checking the natural history of disease function
-    ## testing function: _yeardis()
+    ## testing function: _naturalhistory()
 
     # basic setup
     _reset()  # reset the population. 
     x = humans[th.fs()]    #find the first sick person. 
    
     th.P.vaccine_on = false # make sure vaccine is off
-    r = th._yeardis(x)      # r holds the results. 
+    r = th._naturalhistory(x)      # r holds the results. 
 
     # since this is going to be firsttimeinfection = true for individual x, check if its turned of
     if r.numofepisodes > 0 
@@ -323,34 +322,35 @@ end
    
     allinf = findall(x -> x.health == th.INF, humans)
     res = map(allinf) do x 
-        th._yeardis(humans[x]) ## this runs the natural history of disease for every INF.
+        th._naturalhistory(humans[x]) ## this runs the natural history of disease for every INF.
     end
     # test if vaccination is set for every single person 
+    testpassed = true
     for x in res
         if x.numofepisodes > 0 
-            @test humans[x.id].vaccinated == true
+            humans[x.id].vaccinated != true && (testpassed = false)
         else
-            @test humans[x.id].vaccinated == false
+            humans[x.id].vaccinated != false && (testpassed = false)
         end       
     end
-
+    @test testpassed == true
     
     # check number of legions. go through entire population.
-    ## turn vaccine off.
-    # th._reset() ## reset the population.
-    # th.P.vaccine_on = false
+    # turn vaccine off.
+    th._reset() ## reset the population.
+    th.P.vaccine_on = false
     
-    # m = map(humans) do x
-    #     r = _yeardis(x.id)
-    #     if r.numofepisodes > 0 
-    #         return r.numoflegions/r.numofepisodes
-    #     else 
-    #         return missing
-    #     end    
-    # end
-    # mavg = mean(collect(skipmissing(m)))
-    # @test isapprox(mavg, P.pct_legions; atol=0.05)  # 5% tolerance is high.
-
+    m = map(humans) do x
+        x.health = th.INF
+        r = th._naturalhistory(x)
+        if r.numofepisodes > 0 
+            return r.numoflegions/r.numofepisodes
+        else 
+            return missing
+        end    
+    end
+    mavg = mean(collect(skipmissing(m)))
+    @test isapprox(mavg, P.pct_legions; atol=0.05)  # 5% tolerance is high.
 
     ### check that if vaccination is turned off, no one is getting their .isvaccinated property true
 
