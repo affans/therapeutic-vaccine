@@ -500,7 +500,5 @@ function fs()
 end
 export fs
 
-#export _calibration
-
 
 end # module

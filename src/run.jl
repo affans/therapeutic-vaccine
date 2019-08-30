@@ -49,9 +49,9 @@ function process_prev(res)
 end
 
 
-function _calibration(numofsims)
-    println("running calibration with total sims = $numofsims")
 
+function calibration(numofsims)
+    #println("running calibration with total sims = $numofsims")
     betas = round.([0.01 + 0.005i for i in 0:15]; digits = 3)
     dt = DataFrame([Float64, Float64], [:betas, :average])
     for b in betas
@@ -67,12 +67,11 @@ function _calibration(numofsims)
         ap = mean(arr)
         println("average prevalence at 20 years = $ap")
         push!(dt, (b, ap))
-    end
-    # dt = DataFrame([Int64 for i = 1:5], [Symbol("sim$i") for i = 1:5], 20)
-    # #insertcols!(avg_prev, 6, :avg => 0)
-    # for i = 1:5
-    #     dt[!, Symbol("sim$i")] .= res[i].prevalence[:, :Total]
-    # end    
+    end  
     return dt
+end
+
+function tl(numofsims)
+    return 0
 end
 
