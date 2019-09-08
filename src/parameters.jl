@@ -35,11 +35,14 @@
     pct_legions = 0.30 ## percentage of an episode having legions
     pct_shed_legions = 0.69  
     pct_shed_nolegions = 0.12
-    pct_shed_asymp = 0.02
+
 
     vaccine_on::Bool = false
     vac_efficacy = 1.0
     vac_waningtime::Int64 = 5  ## how long vaccine provides efficacy. 
+
+    initialsymptomatic = 0.82 ## percentage of people that have had an initial symptomatic period at start of infection. from JAMA paper according to their definitions. 
+    initialepisode = 0.20  ## what is the chance of developing the first episode.
 end
 
 mutable struct Human
@@ -59,6 +62,11 @@ mutable struct Human
     firstyearinfection::Bool # infection first year
     vaccinated::Bool  # would get vaccinated after first episode
     vaccineexpiry::Int64
+
+    #
+    hadfirstepisode::Bool
+
+
     Human() = new()
 end
 
@@ -136,7 +144,9 @@ function init_human(h::Human)
     ## if they get infected, then it's going to be their first year of infection. 
     h.firstyearinfection = true
     h.vaccinated = false
-    h.vaccineexpiry = 0
+    h.vaccineexpiry = 999
+
+    h.hadfirstepisode = false
     return h
 end
 

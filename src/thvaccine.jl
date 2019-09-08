@@ -247,13 +247,14 @@ function init_disease()
         if rn < prb 
             x.health = INF
             cnt += 1
+            if rand() < P.initialsymptomatic
+                x.hadfirstepisode = true
+            end
         end
     end
     return cnt
 end
 export init_disease
-
-
 
 function _infinf(sick1::Human, sick2::Human)
     sick1.health != INF && error("infected person is not infected.")
@@ -289,6 +290,24 @@ function _infsusc(sick::Human, susc::Human)
 end
 export _infsusc
 
+function check_transfer_disease(symp_t, asymp_t)
+    # symp_t:  number of sexual encounters during symptomatic phase.
+    # asymp_t: number of sexual encounters during asymptomatic phases. Beta is reduced by 50%
+    dt = false 
+    # check if disease will transfer in these sexual encounters for symptomatic episodes
+    for i = 1:symp_t
+        if rand() < P.beta
+            dt = true
+        end
+    end    
+    for i = 1:asymp_t
+        if rand() < P.beta*P.asymp_reduction
+            dt = true
+        end
+    end 
+    return dt
+end
+export check_transfer_disease
 
 function unpack_naturalhistory(dt, rtuple)
     ## this is a helper function that unpacks the NaturalHistory() object
@@ -313,8 +332,8 @@ function transmission(dataobj::SimData, year = 1)
     sick_pairs = get_partners(onlysick = true)
             
     ctr_xor = 0   ## total number of SUSC/INF pairs
-    ctr_inf = 0   ## total number of INF/INF pairs.
     ctr_dis = 0   ## total number of the SUSC/INF pairs that got sick. 
+    ctr_inf = 0   ## total number of INF/INF pairs.
 
     for p in sick_pairs
         p1 = humans[p.a]
@@ -362,34 +381,15 @@ function transmission(dataobj::SimData, year = 1)
 end
 export transmission
 
-
-function check_transfer_disease(symp_t, asymp_t)
-    # symp_t:  number of sexual encounters during symptomatic phase.
-    # asymp_t: number of sexual encounters during asymptomatic phases. Beta is reduced by 50%
-    dt = false 
-    # check if disease will transfer in these sexual encounters for symptomatic episodes
-    for i = 1:symp_t
-        if rand() < P.beta
-            dt = true
-        end
-    end    
-    for i = 1:asymp_t
-        if rand() < P.beta*P.asymp_reduction
-            dt = true
-        end
-    end 
-    return dt
-end
-export check_transfer_disease
-
 function _get_episodes(x::Human)
     # calculate the number of symptomatic episodes individual will have.
     # assumption: that vaccinated individuals have no recurrances. 
     # this can easily be changed here.
     numofepisodes = 0
-    (x.vaccinated && x.firstyearinfection) && error("person is in first year of infection but is vaccinated")
-    if x.vaccinated
-        numofepisodes = 0 ## if already vaccinated, no episodes. 
+    (x.vaccinated && x.firstyearinfection) && error("person x is in first year of infection but already vaccinated")
+    if x.vaccinated || x.hadfirstepisode == false  
+        ## if already vaccinated or havn't had their first episode... no recurrent episodes. 
+        numofepisodes = 0 
     else
         if x.firstyearinfection
             numofepisodes = rand(Categorical(P.num_recur_firstyear) ) - 1
@@ -416,12 +416,39 @@ export _get_episodes
         x.vaccineexpiry = x.age + P.vac_waningtime
     else 
         x.vaccinated = false
-        x.vaccineexpiry = 0
+        x.vaccineexpiry = 999
     end
 end
 
+function _checkfirstepisode(x::Human)
+    # this function checks if someone has had a first episode. 
+    # if they havn't, it calculates according to the probability distribution. 
+    # note that it dosn't change the actual human... only returns true and false
+    ret = x.hadfirstepisode
+    if !x.hadfirstepisode 
+        rand() < P.initialepisode && (ret = true)          
+    end
+    return ret 
+end
+
+function _mynaturalhistory(x::Human)
+    x.health != INF && error("person is not sick")
+    x.hadfirstepisode = _checkfirstepisode(x)       # if this is true, they have had their first episode. Although we don't know if it's first year or 2nd+ year
+    numofepisodes = _get_episodes(x) # if vaccinated/firstepisode==false, this will return 0. 
+    
+    # define the variables needed
+    pct_asymptomatic = rand
+    numoflegions = 0                 # total number of legions in all symptomatic episodes. 
+    ds = zeros(Int64, numofepisodes) # array for days of symptomatic (in days) per episodes
+    ss = zeros(Int64, numofepisodes) # num of days shedding
+    numofsex_symp = 0                # total num of sexual encounters in the shedding weeks
+    newvax = false                   # whether this person will a newly vaccinated individual
+end
+export _mynaturalhistory
+
 function _naturalhistory(x::Human)
     # this function calculates the natural history of disease 
+    # it is run "per year" for every single person. i.e. the entire year's worth of infection pathway is analyzed here.
     # it does the following:
     # -> calculates the total number of sexual encounters one would have in symptomatic/asymptomatic periods
     # -> if vaccination is on, it correctly sets x.vaccinated property for individuals. 
@@ -431,15 +458,15 @@ function _naturalhistory(x::Human)
     # if vaccine also lowers the number of shedding days, multiply ss[i] by x.vaccinated.
 
     x.health != INF && error("person is not sick")
+    x.hadfirstepisode = _checkfirstepisode(x)       # if this is true, they have had their first episode. Although we don't know if it's first year or 2nd+ year
+    numofepisodes = _get_episodes(x) # if vaccinated/firstepisode==false, this will return 0. 
     
-    numofepisodes = _get_episodes(x) 
-    newvax = false
-
-    # data statistic variables
-    numoflegions = 0    ## total number of legions in all symptomatic episodes. 
+    # define the variables needed
+    numoflegions = 0                 # total number of legions in all symptomatic episodes. 
     ds = zeros(Int64, numofepisodes) # array for days of symptomatic (in days) per episodes
     ss = zeros(Int64, numofepisodes) # num of days shedding
     numofsex_symp = 0                # total num of sexual encounters in the shedding weeks
+    newvax = false                   # whether this person will a newly vaccinated individual
 
     ## main logic of the function.
     if numofepisodes > 0 
@@ -466,7 +493,6 @@ function _naturalhistory(x::Human)
                 ss[i] = Int(round(ds[i]*P.pct_shed_nolegions))
             end
         end
-
         ## now add up all the days the person is shedding over all the episodes 
         ## convert to weeks, and calculate how many times they will have sexual encounter in those weeks. 
         ## sum up the total sexual encounters.
@@ -474,7 +500,6 @@ function _naturalhistory(x::Human)
         ns = [calculatesexfrequency(x.age, x.sex) for i=1:tss]
         numofsex_symp = sum(ns)     
 
-        
         if P.vaccine_on
             _setvaccine(x, true)
             newvax = true
@@ -485,7 +510,7 @@ function _naturalhistory(x::Human)
     # numofdays asymptomatic * percent of shedding(=0.02) * vaccine efficacy: rounded and converted to weeks
     # note this requires if the person is vaccinated...
     vacfactor = x.vaccinated * P.vac_efficacy
-    sa = Int(round( ((365 - sum(ds))*P.pct_shed_asymp*(1 - vacfactor))/7 ))
+    sa = Int(round( ((365 - sum(ds))*P.pct_shed_nolegions*(1 - vacfactor))/7 ))
     numofsex_asymp = sum([calculatesexfrequency(x.age, x.sex) for i=1:sa])
        
     res = NaturalHistory(x.id, x.partner, newvax, numofepisodes, numoflegions, sum(ds), sum(ss), numofsex_symp, 

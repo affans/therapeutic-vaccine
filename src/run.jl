@@ -4,15 +4,15 @@ using Random
 using DelimitedFiles
 using Distributions
 using Base.Filesystem
-using JSON 
+using DataFrames
+using CSV
+#using JSON 
 
 
 ## multi core. 
 addprocs(4; exeflags="--project")
 @everywhere using thvaccine
 
-using DataFrames
-using CSV
 
 
 res = map(x -> main(x), 1:5)
@@ -47,8 +47,6 @@ function process_prev(res)
     # mean.(eachrow(df))
     # map(mean, eachrow(df));
 end
-
-
 
 function calibration(numofsims)
     #println("running calibration with total sims = $numofsims")
