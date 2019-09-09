@@ -15,7 +15,7 @@ addprocs(4; exeflags="--project")
 
 
 
-res = map(x -> main(x), 1:5)
+@time res = map(x -> main(x), 1:2)
 
 for i = 1:5
     dts = res[i]

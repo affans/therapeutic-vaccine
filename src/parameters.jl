@@ -41,8 +41,10 @@
     vac_efficacy = 1.0
     vac_waningtime::Int64 = 5  ## how long vaccine provides efficacy. 
 
+    
     initialsymptomatic = 0.82 ## percentage of people that have had an initial symptomatic period at start of infection. from JAMA paper according to their definitions. 
-    initialepisode = 0.20  ## what is the chance of developing the first episode.
+    initialepisode = 0.20  ## what is the chance of developing the first episode. Source: JAMA 
+
 end
 
 mutable struct Human
