@@ -8,7 +8,7 @@ using DataFrames
 using CSV
 
 ## multi core. 
-addprocs(4; exeflags="--project=.")
+#addprocs(4; exeflags="--project=.")
 @everywhere using thvaccine
 @everywhere using ProgressMeter
 
@@ -22,11 +22,29 @@ function calibration(numofsims=0, beta=0.0)
     for i = 1:numofsims
         avgprev[:, i] = res[i].prevalence.Total
     end
-
+    #hcat((ai.prevalence.Total for ai in a))...)
+    #reduce(hcat, [ai.prevalence.Total for ai in a]) to avoid splatting
     #round.(mean(avgprev, dims=2), digits = 3)
     av = dropdims(round.(mean(avgprev, dims=2), digits = 2), dims=2)
-
     return av
+end
+
+function loopoverbetas() 
+    betas = round.([0.035 + 0.0005i for i in 0:25]; digits = 5)
+    avgs = zeros(Float64, length(betas))
+    @everywhere @eval thvaccine P.sim_time = 100
+    println("Simulation Time: $(thvaccine.P.sim_time)")
+    for i in 1:length(betas)
+        println("starting calibration for: $(betas[i])")
+        cd = calibration(100, betas[i])
+        avgs[i] = cd[end]
+        println("...average prevalence: $(cd[end])")
+        println("...starting next sim \n")
+        if abs(cd[end] - cd[1]) <= 50 
+            break
+        end
+    end
+    return avgs
 end
 #@time res = map(x -> main(x), 1:2)
 
