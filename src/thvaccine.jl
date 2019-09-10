@@ -1,20 +1,9 @@
-### before camping (after push to github so SAVE then delete these comments)
-### basically added a new struct containing data frames in parameters.jl
-### In this struct add any dataframe for collecting data. 
-### Sometimes easier to preallocate, sometimes easier to just push
-
-### In terms of disease dynamics.. In disyn() if INF/SUSC makes susc sick, then I run _dis for the susceptible also for the data collection
-### TO DO: FIRST THING.. run _dis for INF/INF pairing as well. This is just data collection. 
-### It dosn't change the dynamics (well except that it may turn `firstyearinfection` off)
-### MAKE NOTE OF THIS IN GITHUB ISSUES.
-
-## TO DO Remove Legions from human structure
-
 module thvaccine
 using Distributions
 using Parameters
 using Random
 using DataFrames
+using Distributed
 
 import Base: show
 include("./parameters.jl")
@@ -38,14 +27,14 @@ function testparallel(ch)
     put!(ch, hash(humans))
 end
 
-main() = main(1)
-function main(simnumber::Int64, vaccineon = false, beta) 
+function main(simnumber=1, vaccineon = false, beta = 0.0, ch = nothing) 
     #Random.seed!(simnumber) 
-    println("starting work on worker id: $(myid())")
+    #println("starting work on worker id: $(myid())")
     P.vaccine_on = vaccineon
+    beta == 0.0 && "β is set to zero. no disease will happen"
     P.beta = beta
     
-    dat = SimData(P) ## we can't use const here at the global level since each simulation needs to be on its own
+    dat = SimData(P)
 
     #show(dat.prevalence) #this shows that at every run of the function main(), the data is a new object
     # setup initial simulation
@@ -53,11 +42,16 @@ function main(simnumber::Int64, vaccineon = false, beta)
     create_partners()
     marry()
     init_disease()
-    #put!(ch, (myid(), hash(humans)))
-    yr = 1                ## record the initial data
-    record_prevalence(dat, yr) ## record prevalence data
 
-    for i = 1:P.sim_time # step through discrete time (add one to sim_time since starting at 2)
+    ## hash the humans and return to main
+    if ch != nothing 
+        put!(ch, (myid(), hash(humans)))
+    end    
+
+    yr = 1                
+    record_prevalence(dat, yr) ## record initial prevalence data
+
+    for i = 1:P.sim_time 
         yr = i
         record_prevalence(dat, yr) ## record prevalence data
         transmission(dat, yr)   
