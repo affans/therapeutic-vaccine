@@ -27,11 +27,23 @@ const P = ModelParameters()
 const humans = Array{Human}(undef, gridsize)
 const verbose = false ## not used
 
-main() = main(1)
-function main(simnumber::Int64, vaccineon = false) 
-    #Random.seed!(simnumber) 
+function testparallel(ch)
+    println("starting work on worker id: $(myid())")
+    init_population()
+    create_partners()
+    marry()
+    init_disease()
+    #modelinfo()
     
+    put!(ch, hash(humans))
+end
+
+main() = main(1)
+function main(simnumber::Int64, vaccineon = false, beta) 
+    #Random.seed!(simnumber) 
+    println("starting work on worker id: $(myid())")
     P.vaccine_on = vaccineon
+    P.beta = beta
     
     dat = SimData(P) ## we can't use const here at the global level since each simulation needs to be on its own
 
@@ -41,7 +53,7 @@ function main(simnumber::Int64, vaccineon = false)
     create_partners()
     marry()
     init_disease()
-    
+    #put!(ch, (myid(), hash(humans)))
     yr = 1                ## record the initial data
     record_prevalence(dat, yr) ## record prevalence data
 
