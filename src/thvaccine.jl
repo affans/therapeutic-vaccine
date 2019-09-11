@@ -16,18 +16,7 @@ const P = ModelParameters()
 const humans = Array{Human}(undef, gridsize)
 const verbose = false ## not used
 
-function testparallel(ch)
-    println("starting work on worker id: $(myid())")
-    init_population()
-    create_partners()
-    marry()
-    init_disease()
-    #modelinfo()
-    
-    put!(ch, hash(humans))
-end
-
-function main(simnumber=1, vaccineon = false, beta = 0.0, ch = nothing) 
+function main(simnumber=1, vaccineon = false, beta = 0.0) 
     #Random.seed!(simnumber) 
     #println("starting work on worker id: $(myid())")
     P.vaccine_on = vaccineon
@@ -43,17 +32,14 @@ function main(simnumber=1, vaccineon = false, beta = 0.0, ch = nothing)
     marry()
     init_disease()
 
+    ## remove the remotechannel stuff for now. 
     ## hash the humans and return to main
-    if ch != nothing 
-        put!(ch, (myid(), hash(humans)))
-    end    
+    # if ch != nothing 
+    #     put!(ch, (myid(), hash(humans)))
+    # end    
 
-    yr = 1                
-    record_prevalence(dat, yr) ## record initial prevalence data
-
-    for i = 1:P.sim_time 
-        yr = i
-        record_prevalence(dat, yr) ## record prevalence data
+    for yr = 1:P.sim_time 
+        record_data(dat, yr) ## record prevalence data
         transmission(dat, yr)   
         age()                
         create_partners()
@@ -61,7 +47,7 @@ function main(simnumber=1, vaccineon = false, beta = 0.0, ch = nothing)
     return dat ## return the data structure.
 end
 
-function record_prevalence(dat, year)
+function record_data(dat, year)
     ## this just runs some queries for data collection.
     ## make sure dat is initialized as a SimData object.
     total = length(findall(x -> x.health == INF, humans))
@@ -84,7 +70,7 @@ function record_prevalence(dat, year)
     dat.prevalence[year, 1:end] .=  (total, totalpartners, ag1, ag2, ag3, ag4, wte, blk, asn, his, M, F)
     dat.partners[year, 1:end] .=  pair_stats()
 end
-export record_prevalence
+export record_data
 
 function init_population()    
     @inbounds for i = 1:gridsize       

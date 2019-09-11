@@ -12,7 +12,10 @@ using CSV
 @everywhere using thvaccine
 @everywhere using ProgressMeter
 
+
 function calibration(numofsims=0, beta=0.0)    
+    ## this function runs a certain number of simulations for a given beta.
+    ## it returns the average of all simulations per year.
     sims = RemoteChannel(()->Channel{Tuple}(numofsims));
     res = @showprogress pmap(1:numofsims) do x
         main(x, false, beta, sims)
@@ -30,7 +33,9 @@ function calibration(numofsims=0, beta=0.0)
 end
 
 function loopoverbetas() 
-    betas = round.([0.035 + 0.0005i for i in 0:25]; digits = 5)
+    ## this function loops over betas and calls the calibration function for each beta.
+    ## if the average prevalence from start to end is less than 50, we consider that beta good.
+    betas = round.([0.035 + 0.0001i for i in 0:25]; digits = 5)
     avgs = zeros(Float64, length(betas))
     @everywhere @eval thvaccine P.sim_time = 100
     println("Simulation Time: $(thvaccine.P.sim_time)")
@@ -41,6 +46,7 @@ function loopoverbetas()
         println("...average prevalence: $(cd[end])")
         println("...starting next sim \n")
         if abs(cd[end] - cd[1]) <= 50 
+            println("found suitable beta: $(beta[i])")
             break
         end
     end
