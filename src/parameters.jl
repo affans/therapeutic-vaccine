@@ -95,6 +95,7 @@ struct SimData
     partners::DataFrame
     episodes::DataFrame
     agedist::DataFrame
+ 
     function SimData(P)
         ## set up dataframes. when setting up data frames for yearly level data, add 1 to sim_time for the initial year
 

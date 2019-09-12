@@ -13,12 +13,12 @@ using CSV
 @everywhere using ProgressMeter
 
 
-function calibration(numofsims=0, beta=0.0, beta_add = 0.0)    
+function calibration(numofsims=0, beta=0.0, beta_add = 0.0, warmuptime = 0)    
     ## this function runs a certain number of simulations for a given beta.
     ## it returns the average of all simulations per year.
     sims = RemoteChannel(()->Channel{Tuple}(numofsims));
     res = @showprogress pmap(1:numofsims) do x
-        main(x, false, beta, beta_add)
+        main(x, false, beta, beta_add, warmuptime)
     end 
 
     avgprev =  zeros(Int64, thvaccine.P.sim_time, numofsims)   

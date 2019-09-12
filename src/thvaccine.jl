@@ -19,14 +19,17 @@ const verbose = false ## not used
 function main(simnumber=1, vaccineon = false, beta = 0.0, beta_add = 0.0, warmuptime = 0) 
     #Random.seed!(simnumber) 
     #println("starting work on worker id: $(myid())")
-    P.vaccine_on = vaccineon
+   
+    ## error checks 
     beta == 0.0 && "β is set to zero. no disease will happen"
-    P.beta = beta
-    
-    dat = SimData(P)
+    warmuptime > P.sim_time && error("warmuptime is longer than simulation time")    
 
-    #show(dat.prevalence) #this shows that at every run of the function main(), the data is a new object
-    # setup initial simulation
+    P.beta = beta
+    P.vaccine_on = vaccineon
+
+    dat = SimData(P)  # initialize data collection
+
+    ## setup initial distribution. 
     init_population()
     create_partners()
     marry()
@@ -387,6 +390,79 @@ function transmission(dataobj::SimData, year = 1)
 end
 export transmission
 
+
+## old stuff that can be deprecated. 
+@inline function _setvaccine(x::Human, on)
+    if on
+        x.vaccinated = true
+        x.vaccineexpiry = x.age + P.vac_waningtime 
+    else 
+        x.vaccinated = false
+        x.vaccineexpiry = 999
+    end
+end
+
+function _get_shedding_weeks(x::Human) 
+    # quick calculation to see how many weeks one will shed in asympotmatic and symptmatic infections during a year. 
+    # this is based of the JAMA paper, where about 90% of the swabs/days were subclinical. 
+    # i then used the assumption that this will be from 85-95%. 
+    # the amount of shedding while asymptomatic is about 12% of those days. Can we put a distribution around this? 
+
+    # to do: still have to write unit tests for this
+
+    v = x.vaccinated
+
+    # percentage of the days someone is symptomatic/asymptomatic
+    pct_asymptomatic = rand(85:95)/100  ## need to justify this assumption. 
+    pct_symptomatic = 1 - pct_asymptomatic
+    
+    days_symptomatic = pct_symptomatic * 365
+    if v # 50% reduction in symptomatic days if individual is vaccinated.
+        days_symptomatic = days_symptomatic * 0.50 
+    end
+    days_asymptomatic = 365 - days_symptomatic
+    
+    pct_shed_asymptomatic = 0.122
+    pct_shed_symptomatic = 0.689
+    
+    shed_asymptomatic = days_asymptomatic * pct_shed_asymptomatic 
+    shed_symptomatic = days_symptomatic * pct_shed_symptomatic
+
+    if x.vaccinated  ## 50% reduction in shedding. 
+        shed_asymptomatic = shed_asymptomatic * 0.50 
+        shed_symptomatic = shed_symptomatic * 0.50 
+    end
+
+    weeks_asymptomatic = Int(shed_asymptomatic ÷ 7)
+    weeks_symptomatic = Int(shed_symptomatic ÷ 7)
+
+    return (weeks_asymptomatic, weeks_symptomatic)
+end
+
+function _mynaturalhistory(x::Human)
+    ## this is a rewrite of _naturalhistory() to be more in line with the JAMA paper.
+    ## here we don't care about x.hadfirstepisode
+    # to do: still have to write unit tests for this
+
+    x.health != INF && error("person x is not sick") # error check
+    weeks_asymptomatic, weeks_symptomatic = _get_shedding_weeks(x)
+    
+    sex_encounters_asymptomatic = [calculatesexfrequency(x.age, x.sex) for i=1:weeks_asymptomatic]
+    sex_encounters_symptomatic = [calculatesexfrequency(x.age, x.sex) for i=1:weeks_symptomatic]
+    
+    numofsex_asymp = sum(sex_encounters_asymptomatic)  
+    numofsex_symp = sum(sex_encounters_symptomatic)  
+
+    res = NaturalHistory(x.id, x.partner, 0, 0, 0, 0, weeks_symptomatic, numofsex_symp, 
+    weeks_asymptomatic, numofsex_asymp)
+    return res
+end
+export _mynaturalhistory
+
+
+# these next few functions are never used. I refactored it and had different logic. 
+# Based on the JAMA paper, we essentially just used the number of days someone is expected to shed in one year. 
+
 function _get_episodes(x::Human)
     # calculate the number of symptomatic episodes individual will have.
     # assumption: that vaccinated individuals have no recurrances. 
@@ -415,56 +491,6 @@ function _get_episodes(x::Human)
     return numofepisodes
 end
 export _get_episodes
-
-
-function _get_shedding_weeks() 
-    # quick calculation to see how many weeks one will shed in asympotmatic and symptmatic infections
-    pct_asymptomatic = rand(85:95)/100  ## need to justify this assumption. 
-    pct_shed_asymptomatic = 0.122
-    pct_shed_symptomatic = 0.689
-    days_asymptomatic = pct_asymptomatic * 365
-    days_symptomatic = 365 - days_asymptomatic
-    
-    shed_asymptomatic = days_asymptomatic * pct_shed_asymptomatic 
-    shed_symptomatic = days_symptomatic * pct_shed_symptomatic
-    #println("$days_asymptomatic ($shed_asymptomatic)")
-    #println("$days_symptomatic ($shed_symptomatic)")
-
-    weeks_asymptomatic = Int(shed_asymptomatic ÷ 7)
-    weeks_symptomatic = Int(shed_symptomatic ÷ 7)
-    return (weeks_asymptomatic, weeks_symptomatic)
-end
-
-function _mynaturalhistory(x::Human)
-    ## this is a rewrite of _naturalhistory() to be more in line with the JAMA paper.
-    ## here we don't care about x.hadfirstepisode
-
-    x.health != INF && error("person x is not sick") # error check
-    weeks_asymptomatic, weeks_symptomatic = _get_shedding_weeks()
-    
-    sex_encounters_asymptomatic = [calculatesexfrequency(x.age, x.sex) for i=1:weeks_asymptomatic]
-    sex_encounters_symptomatic = [calculatesexfrequency(x.age, x.sex) for i=1:weeks_symptomatic]
-    
-    numofsex_asymp = sum(sex_encounters_asymptomatic)  
-    numofsex_symp = sum(sex_encounters_symptomatic)  
-
-    res = NaturalHistory(x.id, x.partner, 0, 0, 0, 0, weeks_symptomatic, numofsex_symp, 
-    weeks_asymptomatic, numofsex_asymp)
-    return res
-end
-export _mynaturalhistory
-
-
-## old stuff that can be deprecated. 
-@inline function _setvaccine(x::Human, on)
-    if on
-        x.vaccinated = true
-        x.vaccineexpiry = x.age + P.vac_waningtime
-    else 
-        x.vaccinated = false
-        x.vaccineexpiry = 999
-    end
-end
 
 function _checkfirstepisode(x::Human)
     # this function checks if someone has had a first episode. 
@@ -551,11 +577,5 @@ function _naturalhistory(x::Human)
     return res
 end
 export _naturalhistory
-
-function fs()
-    findfirst(x -> x.health == INF, humans)
-end
-export fs
-
 
 end # module

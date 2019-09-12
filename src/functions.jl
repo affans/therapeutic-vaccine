@@ -131,3 +131,7 @@ function modelinfo()
     println("Number of infected: $a1 (with partners: $a2) ")
 end
 
+function fs()
+    findfirst(x -> x.health == INF, humans)
+end
+export fs
