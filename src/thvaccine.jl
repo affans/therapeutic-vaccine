@@ -69,6 +69,11 @@ function record_data(dat, year)
 
     dat.prevalence[year, 1:end] .=  (total, totalpartners, ag1, ag2, ag3, ag4, wte, blk, asn, his, M, F)
     dat.partners[year, 1:end] .=  pair_stats()
+
+    dat.agedist[year, 1] = length(findall(x -> get_age_group(x.age) == 1, humans))
+    dat.agedist[year, 2] = length(findall(x -> get_age_group(x.age) == 2, humans))
+    dat.agedist[year, 3] = length(findall(x -> get_age_group(x.age) == 3, humans))
+    dat.agedist[year, 4] = length(findall(x -> get_age_group(x.age) == 4, humans))
 end
 export record_data
 

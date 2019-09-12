@@ -94,7 +94,7 @@ struct SimData
     prevalence::DataFrame
     partners::DataFrame
     episodes::DataFrame
-
+    agedist::DataFrame
     function SimData(P)
         ## set up dataframes. when setting up data frames for yearly level data, add 1 to sim_time for the initial year
 
@@ -108,7 +108,10 @@ struct SimData
         
         episodes = DataFrame([Int64 for i = 1:14], [:year, :type, :sex, :dt, fieldnames(NaturalHistory)...])
         
-        new(prev, partners, episodes)
+        agedist = DataFrame([Int64 for i = 1:4], [:gr1, :gr2, :gr3, :gr4], P.sim_time)
+        agedist .= 0
+
+        new(prev, partners, episodes, agedist)
     end
 end
 
@@ -128,7 +131,8 @@ function init_human(h::Human)
     ## everything is adjusted for the races we have. 
     ## For example, the census reports other races as well. 
     ## to calculate our distribution, I summed up the population sizes only from the races we have, and used that as the denominator. 
-    agedist = Categorical([0.13, 0.12, 0.24, 0.25, 0.26])
+    #agedist = Categorical([0.13, 0.12, 0.24, 0.25, 0.26])
+    agedist = Categorical([0.14, 0.14, 0.30, 0.28, 0.14])  ## based off internet pyramid https://www.populationpyramid.net/united-states-of-america/2019/
     agebraks = [15:19, 20:24, 25:34, 35:44, 45:49]
     grpdist = Categorical([P.grp_white, P.grp_black, P.grp_asian, P.grp_hispanic])
   
