@@ -7,7 +7,7 @@
 @with_kw mutable struct ModelParameters @deftype Float64
     # general parameters
     sim_time::Int64 = 20  ## ten years in 6 month intervals. 
-
+    
     ## demographic information https://factfinder.census.gov/bkmk/table/1.0/en/ACS/17_5YR/DP05
     grp_hispanic = 0.17
     grp_white = 0.65
