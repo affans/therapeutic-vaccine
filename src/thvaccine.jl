@@ -16,7 +16,7 @@ const P = ModelParameters()
 const humans = Array{Human}(undef, gridsize)
 const verbose = false ## not used
 
-function main(simnumber=1, vaccineon = false, beta = 0.0) 
+function main(simnumber=1, vaccineon = false, beta = 0.0, beta_add = 0.0) 
     #Random.seed!(simnumber) 
     #println("starting work on worker id: $(myid())")
     P.vaccine_on = vaccineon
@@ -39,6 +39,9 @@ function main(simnumber=1, vaccineon = false, beta = 0.0)
     # end    
 
     for yr = 1:P.sim_time 
+        if P.sim_time == 100 
+            P.beta = beta + beta_add
+        end
         record_data(dat, yr) ## record prevalence data
         transmission(dat, yr)   
         age()                
