@@ -16,16 +16,15 @@ const P = ModelParameters()
 const humans = Array{Human}(undef, gridsize)
 const verbose = false ## not used
 
-function main(simnumber=1, vaccineon = false, beta = 0.0, beta_add = 0.0, warmuptime = 0) 
+function main(simnumber=1, beta = 0.0, beta_two = 0.0, warmuptime = 0) 
     #Random.seed!(simnumber) 
     #println("starting work on worker id: $(myid())")
    
     ## error checks 
     beta == 0.0 && "β is set to zero. no disease will happen"
     warmuptime > P.sim_time && error("warmuptime is longer than simulation time")    
-
+    
     P.beta = beta
-    P.vaccine_on = vaccineon
 
     dat = SimData(P)  # initialize data collection
 
@@ -41,7 +40,6 @@ function main(simnumber=1, vaccineon = false, beta = 0.0, beta_add = 0.0, warmup
     #     put!(ch, (myid(), hash(humans)))
     # end    
 
-    
     for yr = 1:warmuptime 
         record_data(dat, yr) ## record prevalence data
         transmission(dat, yr)   
@@ -49,7 +47,7 @@ function main(simnumber=1, vaccineon = false, beta = 0.0, beta_add = 0.0, warmup
         create_partners()
     end 
     
-    P.beta = beta + beta_add
+    P.beta = beta_two
     for yr = (warmuptime + 1):P.sim_time
         record_data(dat, yr) ## record prevalence data
         transmission(dat, yr)   
