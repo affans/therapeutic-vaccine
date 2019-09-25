@@ -6,22 +6,33 @@ using Distributions
 using Base.Filesystem
 using DataFrames
 using CSV
+using ClusterManagers
 
 ## multi core. 
-addprocs(4; exeflags="--project=.")
+##addprocs(4; exeflags="--project=.")
+## a = SlurmManager(200, N=17)
+
+#addprocs(SlurmManager(10*32), N=32) ## this throws an error because N = 32. Create PR. 
+addprocs(SlurmManager(512), N=16) 
+
 @everywhere using thvaccine
 @everywhere using ProgressMeter
 
 
-function calibration(numofsims=0, warmup_beta=0.0, sim_beta = 0.0, warmuptime = 0)    
-    ## this function runs a certain number of simulations for a given beta.
-    ## it returns the average of all simulations per year.
-    sims = RemoteChannel(()->Channel{Tuple}(numofsims));
+function calibration(numofsims=0, warmup_beta=0.0, main_beta=0.0, 
+    warmup_time=0, eql_time=0, run_time=0, includetreatment=false)    
+    ## this function runs a certain number of simulations for a given warmup beta/sim_beta.
+    # calibration results (sept 19) 
+    # P.sim_time = 100 or above. Use the last 10 years. 
+    # cd = calibration(500, 0.02, 0.25, 50) 
+    # Reulst are cyclic because people come in and out. 
+    # changing beta to 1 dosn't make prev 100%. 
+    # the bump of beta after warmup period puts it in some equilibrium. 
+    # sims = RemoteChannel(()->Channel{Tuple}(numofsims));
     res = @showprogress pmap(1:numofsims) do x
-        main(x, warmup_beta, sim_beta, warmuptime)
+        main(x, warmup_beta, main_beta, warmup_time, eql_time, run_time, includetreatment)
     end 
-
-    avgprev =  zeros(Int64, thvaccine.P.sim_time, numofsims)   
+    avgprev =  zeros(Int64, warmup_time+eql_time+run_time, numofsims)   
     for i = 1:numofsims
         avgprev[:, i] = res[i].prevalence.Total
     end
@@ -52,61 +63,6 @@ function loopoverbetas()
     end
     return avgs
 end
-#@time res = map(x -> main(x), 1:2)
-
-# for i = 1:5
-#     dts = res[i]
-#     insertcols!(dts.prevalence, 1, :sim => i)
-#     insertcols!(dts.partners, 1, :sim => i)
-#     insertcols!(dts.episodes, 1, :sim => i)
-# end
-
-# # prevalence
-# p = vcat([res[i].prevalence for i = 1:5]...)
-# e = vcat([res[i].episodes for i = 1:5]...)
-# s = vcat([res[i].partners for i = 1:5]...)
-
-function process_prev(res)
-    avg_prev = DataFrame([Int64 for i = 1:5], [Symbol("sim$i") for i = 1:5], 20)
-    #insertcols!(avg_prev, 6, :avg => 0)
-    for i = 1:5
-        avg_prev[!, Symbol("sim$i")] .= res[i].prevalence[:, :Total]
-    end
-    c = convert(Matrix, avg_prev[:, 1:5])
-    m = dropdims(mean(c; dims=2), dims=2) 
-    m = round.(m; digits=2)
-    avg_prev[!, :avg] = m
-    
-    
-    ## ways of taking the average row-wise
-    # df |> @mutate(d=mean(_)) |> DataFrame
-    # mean(eachcol(df))
-    # mean.(eachrow(df))
-    # map(mean, eachrow(df));
-end
-
-
-function __calibration(numofsims)
-    println("running calibration with total sims = $numofsims")
-    betas = round.([0.01 + 0.005i for i in 0:15]; digits = 3)
-    dt = DataFrame([Float64, Float64], [:betas, :average])
-    for b in betas
-        println("Testing β = $b")
-        res = @showprogress pmap(1:numofsims) do x
-            main(x, false, b)
-        end
-        arr = zeros(Float64, numofsims)
-        for i in 1:numofsims
-            arr[i] = res[i].prevalence[20, :Total]
-        end
-        ap = mean(arr)
-        println("average prevalence at 20 years = $ap")
-        push!(dt, (b, ap))
-    end  
-    return dt
-end
-
-
 
 
 ## this example shows that even though agents is defined at the global scope and is available all the time 

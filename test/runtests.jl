@@ -9,7 +9,7 @@ const gridsize = length(thvaccine.humans)
     th.init_human(x, 1)
     @test x.age >= 15 && x.age <= 49
     @test x.partner == 0 && x.married == false
-    @test x.firstyearinfection == true
+  
     @test x.id == 1
     th.replace_human(x)  ## replace the human and check if certain properties are set
     @test x.partner == 0
@@ -223,6 +223,8 @@ end
 end
 
 @testset "IDIS" begin
+    ## this tests the initial disease distribution. 
+    ## Basically the function init_disease
     th._resetdemo() ## reset the demographics
  
     ## we havn't run the init_disease function yet. 
@@ -268,96 +270,6 @@ end
     @test _c + infinf*2 == prevcnt
 end
 
-@testset "YEAR" begin
-    ## in this test set, we test the main logic of the disease transfer functions. 
-    th._reset() ## reset the population.
-    
-    # Check _get_episodes function. 
-    # Not much to test here. Test if the function even works.
-    # See if the proportion of number of zeros is the same as what's defined in the parameters
-    eps_a = [_get_episodes(humans[i]) for i = 1:length(humans)]
-    eps_z = findall(x -> x == 0, eps_a)  ## find the number of zeros.. 
-    ## this _reset() was run, all humans should have firstyearinfection = true, so we check against the right distribtion
-    @test isapprox(length(eps_z)/length(humans), P.num_recur_firstyear[1]; atol=0.05)
-
-    # Keep checking _get_episodes with vaccine turned on. 
-    # Here we are checking whether the maximum number of episodes is equal to one. 
-    _reset()
-    th.P.vaccine_on = true
-    eps_a = [_get_episodes(humans[i]) for i = 1:length(humans)]
-    @test maximum(eps_a) == 1
-
-    # manually make everyone vaccinated. 
-    # no one should have any symptomatic periods if they are vaccinated.
-    _reset()
-    for x in humans 
-        x.firstyearinfection = false ## have to turn this off if vaccinated = true... otherwise it throws an error
-        x.vaccinated = true 
-    end
-    eps_a = [_get_episodes(humans[i]) for i = 1:length(humans)]
-    @test maximum(eps_a) == 0
-    
-
-    ## checking the natural history of disease function
-    ## testing function: _naturalhistory()
-
-    # basic setup
-    _reset()  # reset the population. 
-    x = humans[th.fs()]    #find the first sick person. 
-   
-    th.P.vaccine_on = false # make sure vaccine is off
-    r = th._naturalhistory(x)      # r holds the results. 
-
-    # since this is going to be firsttimeinfection = true for individual x, check if its turned of
-    if r.numofepisodes > 0 
-        @test x.firstyearinfection == false ## no more first year infection
-        @test x.vaccinated == false ## vaccine is turned off. 
-        @test r.vaccinated == false  ## the function shouldn't return that person is vaccinated.     
-        @test r.duration_symp > 0 ## there should be a few duration days... actually can calculate this exactly since duration is not based on distribution 
-    end 
-
-    ## let's turn on vaccine now. 
-    _reset()  # reset the population.    
-    th.P.vaccine_on = true # make sure vaccine is on
-   
-    allinf = findall(x -> x.health == th.INF, humans)
-    res = map(allinf) do x 
-        th._naturalhistory(humans[x]) ## this runs the natural history of disease for every INF.
-    end
-    # test if vaccination is set for every single person 
-    testpassed = true
-    for x in res
-        if x.numofepisodes > 0 
-            humans[x.id].vaccinated != true && (testpassed = false)
-        else
-            humans[x.id].vaccinated != false && (testpassed = false)
-        end       
-    end
-    @test testpassed == true
-    
-    # check number of legions. go through entire population.
-    # turn vaccine off.
-    th._reset() ## reset the population.
-    th.P.vaccine_on = false
-    
-    m = map(humans) do x
-        x.health = th.INF
-        r = th._naturalhistory(x)
-        if r.numofepisodes > 0 
-            return r.numoflegions/r.numofepisodes
-        else 
-            return missing
-        end    
-    end
-    mavg = mean(collect(skipmissing(m)))
-    @test isapprox(mavg, P.pct_legions; atol=0.05)  # 5% tolerance is high.
-
-    ### check that if vaccination is turned off, no one is getting their .isvaccinated property true
-
-end
-
-
-
 @testset "MISC" begin
     ## test the age groups.. should be from 1-4
     a = [th.get_age_group(humans[i].age) for i = 1:gridsize]
@@ -368,4 +280,41 @@ end
     # @test sum(c) == 1
 
     # test the default parameters
+end
+
+@testset "SHED" begin
+    th._reset() ## reset the model with infected people
+    ## no treatment yet (quick test this)
+    sick = findall(x -> x.health == INF, humans)
+    treated = findall(x -> x.treated > 0, humans)
+
+end
+
+@testset "TREAT" begin
+    ## test the treatment function
+    ## test that with and without treatment what the average number of symptomatic days there are. 
+    _reset() ## reset the population with infected.
+    cnt = length(findall(x -> x.health == th.INF, humans))
+    th.P.treatment_coverage = 1.0 ## switch to 100% coverage. 
+    treatment(2)
+    for x in humans
+        if x.health == th.INF
+            @test x.treated > 0
+        end
+    end
+
+    ## test if coverage = 0.0
+    _reset() ## reset the population with infected.
+    cnt = length(findall(x -> x.health == th.INF, humans))
+    th.P.treatment_coverage = 0.0 ## switch to 100% coverage. 
+    treatment(2)
+    for x in humans
+        if x.health == th.INF
+            @test x.treated == 0
+        end 
+    end
+end
+
+@testset "VACC" begin
+    ## test the vaccine function
 end

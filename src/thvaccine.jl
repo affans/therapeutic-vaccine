@@ -16,15 +16,14 @@ const P = ModelParameters()
 const humans = Array{Human}(undef, gridsize)
 const verbose = false ## not used
 
-function main(simnumber=1, beta = 0.0, beta_two = 0.0, warmuptime = 0) 
+function main(simnumber=1, warmup_beta=0.0, main_beta=0.0, 
+    warmup_time=0, eql_time=0, run_time=0, includetreatment=false) 
     #Random.seed!(simnumber) 
-    #println("starting work on worker id: $(myid())")
-   
+ 
     ## error checks 
-    beta == 0.0 && "β is set to zero. no disease will happen"
-    warmuptime > P.sim_time && error("warmuptime is longer than simulation time")    
-    
-    P.beta = beta
+    warmup_beta + main_beta == 0.0 && error("β is set to zero. No disease will happen")
+    P.sim_time = warmup_time + eql_time + run_time
+    P.sim_time == 0 && error("simulation time is set to zero")
 
     dat = SimData(P)  # initialize data collection
 
@@ -33,27 +32,52 @@ function main(simnumber=1, beta = 0.0, beta_two = 0.0, warmuptime = 0)
     create_partners()
     marry()
     init_disease()
+    if includetreatment 
+        treatment(2, 1.0) 
+    end
+    # ## give all the infected people episodic treatment. 
 
-    ## remove the remotechannel stuff for now. 
-    ## hash the humans and return to main
-    # if ch != nothing 
-    #     put!(ch, (myid(), hash(humans)))
-    # end    
+    ## create the right end points for the time llops
+    t1 = warmup_time
+    t2 = warmup_time + eql_time
+    t3 = warmup_time + eql_time + run_time
 
-    for yr = 1:warmuptime 
-        record_data(dat, yr) ## record prevalence data
+    _tmpcntarr = zeros(Int64, P.sim_time)## temp array to store data
+
+    P.beta = warmup_beta
+    for yr = 1:t1
         transmission(dat, yr)   
         age()                
         create_partners()
+        record_data(dat, yr) ## record prevalence data        
     end 
     
-    P.beta = beta_two
-    for yr = (warmuptime + 1):P.sim_time
-        record_data(dat, yr) ## record prevalence data
+    P.beta = main_beta
+    for yr = (t1 + 1):t2
         transmission(dat, yr)   
         age()                
         create_partners()
+        record_data(dat, yr) 
     end
+
+    ## main scenario run loop
+    P.beta = main_beta
+    if P.scenario == 1     ## treatment 
+        _func = treatment
+    elseif P.scenario == 2 ## vaccine
+        _func = vaccine
+    end
+    
+    for yr = (t2 + 1):t3        
+        transmission(dat, yr)   
+        age()                
+        create_partners()
+        cnt = _func(1, P.treatment_coverage)
+        _tmpcntarr[yr] = cnt 
+        record_data(dat, yr)  
+    end
+    dat.gendata[!, :treated] = _tmpcntarr
+
     return dat ## return the data structure.
 end
 
@@ -79,7 +103,6 @@ function record_data(dat, year)
 
     dat.prevalence[year, 1:end] .=  (total, totalpartners, ag1, ag2, ag3, ag4, wte, blk, asn, his, M, F)
     dat.partners[year, 1:end] .=  pair_stats()
-
     dat.agedist[year, 1] = length(findall(x -> get_age_group(x.age) == 1, humans))
     dat.agedist[year, 2] = length(findall(x -> get_age_group(x.age) == 2, humans))
     dat.agedist[year, 3] = length(findall(x -> get_age_group(x.age) == 3, humans))
@@ -105,9 +128,6 @@ function age()
         if h.age > 49 
             ct += 1
             exit_population(h)
-        end
-        if h.age == h.vaccineexpiry 
-            _setvaccine(h, false)
         end
     end
     return ct
@@ -229,8 +249,8 @@ function get_partners(; onlysick = false)
 end
 export get_partners
 
-
 function pair_stats()
+    ## this is an information function used to record data in the dataframe. 
     all_pairs = get_partners()  
     sick_pairs = get_partners(onlysick = true)
     infsusc_pairs = 0
@@ -246,18 +266,14 @@ end
 export pair_stats
 
 function init_disease()
-    ## initialize the disease based on data distribution
+    ## initialize the disease based on data distribution from paper.
+    ## this might not work for calibration since we are trying to get to 12% after calibration.
     cnt = 0
-    for x in humans
-        rn = rand()
-        prb = disease_probability(x.age, x.sex, x.grp)
-        if rn < prb 
-            x.health = INF
-            cnt += 1
-            if rand() < P.initialsymptomatic
-                x.hadfirstepisode = true
-            end
-        end
+    a = findall(x -> x.partner > 0 && x.married == false, humans)
+    r = sample(a, 100; replace = false)
+    for i in r
+        humans[i].health = INF
+        cnt += 1
     end
     return cnt
 end
@@ -303,12 +319,12 @@ function check_transfer_disease(symp_t, asymp_t)
     dt = false 
     # check if disease will transfer in these sexual encounters for symptomatic episodes
     for i = 1:symp_t
-        if rand() < P.beta
+        if rand() < 1 - (1 - (1 - P.p)*(1 - P.q)*P.beta)
             dt = true
         end
     end    
     for i = 1:asymp_t
-        if rand() < P.beta*P.asymp_reduction
+        if rand() < 1 - (1 - (1 - P.p)*(1 - P.q)*P.beta*P.asymp_reduction)   
             dt = true
         end
     end 
@@ -358,8 +374,8 @@ function transmission(dataobj::SimData, year = 1)
             p1t = unpack_naturalhistory(rdt[2], (year, 1, Int(p1.sex), 0))
             p2t = unpack_naturalhistory(rdt[3], (year, 1, Int(p2.sex), 0))
 
-            push!(dataobj.episodes, p1t)
-            push!(dataobj.episodes, p2t)
+            #push!(dataobj.episodes, p1t)
+            #push!(dataobj.episodes, p2t)
         end 
 
         if xor(p1health == INF, p2health == INF)
@@ -380,25 +396,13 @@ function transmission(dataobj::SimData, year = 1)
             p1t = unpack_naturalhistory(rdt[2], (year, 1, Int(p1.sex), rdt[1]))
             p2t = unpack_naturalhistory(rdt[3], (year, 1, Int(p2.sex), 0))
             
-            push!(dataobj.episodes, p1t)
-            push!(dataobj.episodes, p2t)
+            #push!(dataobj.episodes, p1t)
+            #push!(dataobj.episodes, p2t)
         end
     end
     return ctr_inf, ctr_xor, ctr_dis
 end
 export transmission
-
-
-## old stuff that can be deprecated. 
-@inline function _setvaccine(x::Human, on)
-    if on
-        x.vaccinated = true
-        x.vaccineexpiry = x.age + P.vac_waningtime 
-    else 
-        x.vaccinated = false
-        x.vaccineexpiry = 999
-    end
-end
 
 function _get_shedding_weeks(x::Human) 
     # quick calculation to see how many weeks one will shed in asympotmatic and symptmatic infections during a year. 
@@ -408,27 +412,40 @@ function _get_shedding_weeks(x::Human)
 
     # to do: still have to write unit tests for this
 
-    v = x.vaccinated
-
     # percentage of the days someone is symptomatic/asymptomatic
     pct_asymptomatic = rand(85:95)/100  ## need to justify this assumption. 
-    pct_symptomatic = 1 - pct_asymptomatic
-    
-    days_symptomatic = pct_symptomatic * 365
-    if v # 50% reduction in symptomatic days if individual is vaccinated.
-        days_symptomatic = days_symptomatic * 0.50 
-    end
-    days_asymptomatic = 365 - days_symptomatic
-    
+    pct_symptomatic = 1 - pct_asymptomatic   
     pct_shed_asymptomatic = 0.122
     pct_shed_symptomatic = 0.689
-    
-    shed_asymptomatic = days_asymptomatic * pct_shed_asymptomatic 
-    shed_symptomatic = days_symptomatic * pct_shed_symptomatic
 
-    if x.vaccinated  ## 50% reduction in shedding. 
-        shed_asymptomatic = shed_asymptomatic * 0.50 
-        shed_symptomatic = shed_symptomatic * 0.50 
+    days_symptomatic = pct_symptomatic * 365
+    days_asymptomatic = 365 - days_symptomatic    
+  
+    shed_symptomatic = days_symptomatic * pct_shed_symptomatic
+    shed_asymptomatic = days_asymptomatic * pct_shed_asymptomatic
+
+    # 50% reduction in symptomatic days if individual is vaccinated.
+    if x.vaccinated 
+        days_symptomatic = days_symptomatic * (1 - 0.50)
+        days_asymptomatic = 365 - days_symptomatic
+        shed_symptomatic = days_symptomatic * pct_shed_symptomatic * (1 - 0.50)
+        shed_asymptomatic = days_asymptomatic * pct_shed_asymptomatic * (1 - 0.50)
+    end
+
+    # suppressive treatment.
+    if x.treated == 1 
+        days_symptomatic = days_symptomatic * (1 - 0.80)    ## need to justify
+        days_asymptomatic = 365 - days_symptomatic
+        shed_symptomatic = days_symptomatic * pct_shed_symptomatic * (1 - 0.50)
+        shed_asymptomatic = days_asymptomatic * pct_shed_asymptomatic * (1 - 0.50)
+    end
+
+    # episodic treatment.
+    if x.treated == 2
+        days_symptomatic = days_symptomatic * (1 - 0.60)   ## need to justify
+        days_asymptomatic = 365 - days_symptomatic
+        shed_symptomatic = days_symptomatic * pct_shed_symptomatic * (1 - 0.50)
+        shed_asymptomatic = days_asymptomatic * pct_shed_asymptomatic
     end
 
     weeks_asymptomatic = Int(shed_asymptomatic ÷ 7)
@@ -438,11 +455,8 @@ function _get_shedding_weeks(x::Human)
 end
 
 function _mynaturalhistory(x::Human)
-    ## this is a rewrite of _naturalhistory() to be more in line with the JAMA paper.
-    ## here we don't care about x.hadfirstepisode
     # to do: still have to write unit tests for this
-
-    x.health != INF && error("person x is not sick") # error check
+    x.health != INF && error("person is not sick") # error check
     weeks_asymptomatic, weeks_symptomatic = _get_shedding_weeks(x)
     
     sex_encounters_asymptomatic = [calculatesexfrequency(x.age, x.sex) for i=1:weeks_asymptomatic]
@@ -457,123 +471,51 @@ function _mynaturalhistory(x::Human)
 end
 export _mynaturalhistory
 
+function treatment(type::Int64, coverage)
+    ## this function is run at the end of year.
+    ## it goes through every single human, and if they are infected 
+    ## it sets their treatment on.
+    ## if an individual gets sick during the year, their treatment really starts right away
+    ## but in our model, it would get recorded in the following year. 
 
-# these next few functions are never used. I refactored it and had different logic. 
-# Based on the JAMA paper, we essentially just used the number of days someone is expected to shed in one year. 
-
-function _get_episodes(x::Human)
-    # calculate the number of symptomatic episodes individual will have.
-    # assumption: that vaccinated individuals have no recurrances. 
-    # this can easily be changed here.
-    numofepisodes = 0
-    (x.vaccinated && x.firstyearinfection) && error("person x is in first year of infection but already vaccinated")
-    if x.vaccinated || x.hadfirstepisode == false  
-        ## if already vaccinated or havn't had their first episode... no recurrent episodes. 
-        numofepisodes = 0 
-    else
-        if x.firstyearinfection
-            numofepisodes = rand(Categorical(P.num_recur_firstyear) ) - 1
-
-            ## if vaccine is turned on in the model, the number of episodes is reduced to 1.
-            ## i.e. the individual will have one episode and then vaccinated
-            if numofepisodes > 0 && P.vaccine_on
-                numofepisodes = 1
+    ## this function needs unit testing and more logic for episodic as well
+    cnt = 0
+    for x in humans
+        if x.health == INF && x.treated == 0
+            if rand() < coverage
+                x.treated = type
+                cnt += 1
             end
-        else    
-            numofepisodes = rand(Categorical(P.num_recur_thereafter)) - 1
-            ## we don't have to check for vaccine_on here.. if vaccine is on in the simulations, 
-            ## they would've x.vaccinated = true after their first year of infection 
-            ## and numofepisodes = 0
-        end 
+        end
     end
-    return numofepisodes
-end
-export _get_episodes
-
-function _checkfirstepisode(x::Human)
-    # this function checks if someone has had a first episode. 
-    # if they havn't, it calculates according to the probability distribution. 
-    # note that it dosn't change the actual human... only returns true and false
-    ret = x.hadfirstepisode
-    if !x.hadfirstepisode 
-        rand() < P.initialepisode && (ret = true)          
-    end
-    return ret 
+    return cnt
 end
 
-function _naturalhistory(x::Human)
-    # this function calculates the natural history of disease 
-    # it is run "per year" for every single person. i.e. the entire year's worth of infection pathway is analyzed here.
-    # it does the following:
-    # -> calculates the total number of sexual encounters one would have in symptomatic/asymptomatic periods
-    # -> if vaccination is on, it correctly sets x.vaccinated property for individuals. 
-    # -> it returns an object of the information which can be used for data recording. 
-    # it does NOT check for disease transfer. 
+export treatment
 
-    # if vaccine also lowers the number of shedding days, multiply ss[i] by x.vaccinated.
-
-    x.health != INF && error("person is not sick")
-    x.hadfirstepisode = _checkfirstepisode(x)       # if this is true, they have had their first episode. Although we don't know if it's first year or 2nd+ year
-    numofepisodes = _get_episodes(x) # if vaccinated/firstepisode==false, this will return 0. 
+function vaccine()
+    # this function is run at the end of year 
+    # it goes through every single human, and if they are infected
+    # it sets their vaccine status on. 
+    # (if their age is past the expiry, it sets their vaccine status off)
     
-    # define the variables needed
-    numoflegions = 0                 # total number of legions in all symptomatic episodes. 
-    ds = zeros(Int64, numofepisodes) # array for days of symptomatic (in days) per episodes
-    ss = zeros(Int64, numofepisodes) # num of days shedding
-    tss = 0
-    numofsex_symp = 0                # total num of sexual encounters in the shedding weeks
-    newvax = false                   # whether this person will a newly vaccinated individual
-
-    ## main logic of the function.
-    if numofepisodes > 0 
-        if x.firstyearinfection 
-            ds[1] = P.duration_first[x.sex]
-            x.firstyearinfection = false  # person got symptomatic episode in this year. turn this off.
-        else 
-            ds[1] = P.duration_recur[x.sex] 
-        end        
-        if rand() < P.pct_legions
-            numoflegions += 1 
-            ss[1] = Int(round(ds[1]*P.pct_shed_legions))
-        else
-            ss[1] = Int(round(ds[1]*P.pct_shed_nolegions))
+    cnt = 0 ## count of new vaccinated in the year.
+    for x in humans
+        if x.health == INF
+            x.vaccinated = true
+            x.vaccineexpiry = x.age + P.vac_waningtime 
+            cnt += 1
         end
-        
-        # now that we've decided for the first episode, what about the rest?
-        @inbounds for i = 2:numofepisodes
-        ds[i] = P.duration_recur[x.sex] 
-            if rand() < P.pct_legions
-                numoflegions += 1
-                ss[i] = Int(round(ds[i]*P.pct_shed_legions))
-            else 
-                ss[i] = Int(round(ds[i]*P.pct_shed_nolegions))
-            end
-        end
-        ## now add up all the days the person is shedding over all the episodes 
-        ## convert to weeks, and calculate how many times they will have sexual encounter in those weeks. 
-        ## sum up the total sexual encounters.
-        tss = Int(round(sum(ss)/7)) ## total days you are shedding (in weeks)
-        ns = [calculatesexfrequency(x.age, x.sex) for i=1:tss]
-        numofsex_symp = sum(ns)     
 
-        if P.vaccine_on
-            _setvaccine(x, true)
-            newvax = true
+        if x.age == x.vaccineexpiry 
+            x.vaccinated = false
+            x.vaccineexpiry = 999
         end
     end
-
-    # repeat the same calculation except for asymptomatic. I do this calculation in one line. 
-    # numofdays asymptomatic * percent of shedding(=0.02) * vaccine efficacy: rounded and converted to weeks
-    # note this requires if the person is vaccinated...
-    vacfactor = x.vaccinated * P.vac_efficacy
-    sa = Int(round( ((365 - sum(ds))*P.pct_shed_nolegions*(1 - vacfactor))/7 ))
-    numofsex_asymp = sum([calculatesexfrequency(x.age, x.sex) for i=1:sa])
-       
-    res = NaturalHistory(x.id, x.partner, newvax, numofepisodes, numoflegions, sum(ds), tss, numofsex_symp, 
-                        sa, numofsex_asymp)
-        
-    return res
+    return cnt
 end
-export _naturalhistory
+export vaccine
+
+
 
 end # module

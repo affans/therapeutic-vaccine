@@ -15,76 +15,40 @@
     grp_asian = 0.06
     pct_married = 0.20 ## percentage of people married at the start of sims
     pct_partnerchange = 0.50 ## not implemented yet
-
-    # disease parameters.
-    
     beta = 1.0 #0.01
     asymp_reduction = 1.0 # 0.50
-    incubation = 4.3   ## average incubation days.
-
-    ## if these change to a distribution, we have to make the changes in runtests.jl as well otherwise those tests will fail
-    duration_first::Dict{SEX, Int64} = Dict(MALE => 17, FEMALE => 20)
-    duration_recur::Dict{SEX, Int64} = Dict(MALE => 10, FEMALE => 12)
-
-    ## number of recurrances: 0 = 11%, 1-6: 51% (so 51/6 = 8.5%)
-    num_recur_firstyear::Array{Float64} = [0.11, 0.085, 0.085, 0.085, 0.085, 0.085, 0.085, 0.095, 0.095, 0.095, 0.095]
-    num_recur_thereafter::Array{Float64} = [0.20, 0.11, 0.11, 0.11, 0.11, 0.11, 0.11, 0.025, 0.025, 0.025, 0.025, 0.04]
-    ## the 0.04 at the end there added by me.... 
-
-    ## percentage of shedding in symptomatic episodes with/without legions.
-    pct_legions = 0.30 ## percentage of an episode having legions
-    pct_shed_legions = 0.69  
-    pct_shed_nolegions = 0.12
-
-
-    vaccine_on::Bool = false
-    vac_efficacy = 1.0
+    p = 0.0
+    q = 0.0
     vac_waningtime::Int64 = 5  ## how long vaccine provides efficacy. 
-
-    
-    initialsymptomatic = 0.82 ## percentage of people that have had an initial symptomatic period at start of infection. from JAMA paper according to their definitions. 
-    initialepisode = 0.20  ## what is the chance of developing the first episode. Source: JAMA 
-
+    scenario = 1 ## 1 = treatment, 2 = vaccine
+    treatment_coverage = 1.0
 end
 
 mutable struct Human
     id::Int64
-    health::HEALTH
-    
+    health::HEALTH 
     ## demographics
     age::Int64
     sex::SEX # 0: female, 1:male   
     grp::GRP
-
-    ## partnership and pairings
-    partner::Int64
+    partner::Int64      ## partnership and pairings
     married::Bool
-
-    ## whether infection happens in first year.
     firstyearinfection::Bool # infection first year
     vaccinated::Bool  # would get vaccinated after first episode
     vaccineexpiry::Int64
-
-    #
-    hadfirstepisode::Bool
-
-
+    treated::Int64 # 0 = no treatment, 1 = suppressive treatment, 2 = episodic treatment
     Human() = new()
 end
 
 struct NaturalHistory
     id::Int64
-    pd::Int64
-    
-    vaccinated::Int64     ## whether the individual was vaccinated
-    
+    pd::Int64    
+    vaccinated::Int64     ## whether the individual was vaccinated    
     numofepisodes::Int64  ## if vaccine is turned on, the "numofepisodes" and "numoflegions" woulnd't change.
     numoflegions::Int64   ## -- however the effect of vaccine is reflected in "duration_symp" 
     duration_symp::Int64
     shedding_symp::Int64
     numofsex_symp::Int64
-
-    #duration_asymp::Int64
     shedding_asymp::Int64
     numofsex_asymp::Int64
 end
@@ -95,6 +59,7 @@ struct SimData
     partners::DataFrame
     episodes::DataFrame
     agedist::DataFrame
+    gendata::DataFrame
  
     function SimData(P)
         ## set up dataframes. when setting up data frames for yearly level data, add 1 to sim_time for the initial year
@@ -112,7 +77,9 @@ struct SimData
         agedist = DataFrame([Int64 for i = 1:4], [:gr1, :gr2, :gr3, :gr4], P.sim_time)
         agedist .= 0
 
-        new(prev, partners, episodes, agedist)
+        gendata = DataFrame([Int64], [:treated], P.sim_time)
+        gendata .= 0
+        new(prev, partners, episodes, agedist, gendata)
     end
 end
 
@@ -147,13 +114,10 @@ function init_human(h::Human)
     # partners
     h.partner = 0
     h.married = false
-
-    ## if they get infected, then it's going to be their first year of infection. 
     h.firstyearinfection = true
     h.vaccinated = false
     h.vaccineexpiry = 999
-
-    h.hadfirstepisode = false
+    h.treated = 0
     return h
 end
 
