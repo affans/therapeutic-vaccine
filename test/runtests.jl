@@ -295,24 +295,64 @@ end
     ## test that with and without treatment what the average number of symptomatic days there are. 
     _reset() ## reset the population with infected.
     cnt = length(findall(x -> x.health == th.INF, humans))
-    th.P.treatment_coverage = 1.0 ## switch to 100% coverage. 
-    treatment(2)
+ 
+    ## test with 100% episodic treatment. this is usually at the start of warmup period and for calibration.
+    treatment(2, 1.0) ## give everyone episodic treatment
     for x in humans
         if x.health == th.INF
-            @test x.treated > 0
+            @test x.treated == 2
         end
     end
-
-    ## test if coverage = 0.0
+ 
+    ## test with 0% episodic treatment. this is usually at the start of warmup period and for calibration.
     _reset() ## reset the population with infected.
     cnt = length(findall(x -> x.health == th.INF, humans))
-    th.P.treatment_coverage = 0.0 ## switch to 100% coverage. 
-    treatment(2)
+    treatment(2, 0.0)
     for x in humans
         if x.health == th.INF
             @test x.treated == 0
         end 
     end
+
+    ## test whether shedding is reduced as expected. 
+    _reset() ## reset the population with infected. 
+    nta = Array{Int64, 1}()
+    nts = Array{Int64, 1}()
+    for x in humans
+        if x.health == th.INF
+            a, s = th._get_shedding_weeks(x) ## get number of weeks shedding asymptomatic/symptomatic
+            push!(nta, a)
+            push!(nts, s)
+        end 
+    end
+
+    _reset() ## reset the population with infected. 
+    treatment(2, 1.0)  #give everyone episodic treatment
+    ta = Array{Int64, 1}()
+    ts = Array{Int64, 1}()
+    for x in humans
+        if x.health == th.INF
+            a, s = th._get_shedding_weeks(x) ## get number of weeks shedding asymptomatic/symptomatic
+            push!(ta, a)
+            push!(ts, s)
+        end 
+    end
+    
+    ## test how different nts (no treatment symptomatic periods) and ts (treatment symptomatic periods) differ. 
+
+
+    _reset() ## reset the population with infected. 
+    treatment(1, 1.0)  #give everyone suppressive treatment
+    ta = Array{Int64, 1}()
+    ts = Array{Int64, 1}()
+    for x in humans
+        if x.health == th.INF
+            a, s = th._get_shedding_weeks(x) ## get number of weeks shedding asymptomatic/symptomatic
+            push!(ta, a)
+            push!(ts, s)
+        end 
+    end
+
 end
 
 @testset "VACC" begin

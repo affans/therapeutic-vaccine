@@ -31,11 +31,9 @@ function main(simnumber=1, warmup_beta=0.0, main_beta=0.0,
     init_population()
     create_partners()
     marry()
-    init_disease()
-    if includetreatment 
-        treatment(2, 1.0) 
-    end
-    # ## give all the infected people episodic treatment. 
+    init_disease()   
+    treatment(2, 1.0) ## give all the infected people episodic treatment. 
+    # 
 
     ## create the right end points for the time llops
     t1 = warmup_time
@@ -49,6 +47,7 @@ function main(simnumber=1, warmup_beta=0.0, main_beta=0.0,
         transmission(dat, yr)   
         age()                
         create_partners()
+        treatment(2, 1.0)
         record_data(dat, yr) ## record prevalence data        
     end 
     
@@ -57,6 +56,7 @@ function main(simnumber=1, warmup_beta=0.0, main_beta=0.0,
         transmission(dat, yr)   
         age()                
         create_partners()
+        treatment(2, 1.0)
         record_data(dat, yr) 
     end
 
@@ -413,16 +413,57 @@ function _get_shedding_weeks(x::Human)
     # to do: still have to write unit tests for this
 
     # percentage of the days someone is symptomatic/asymptomatic
-    pct_asymptomatic = rand(85:95)/100  ## need to justify this assumption. 
+    pct_asymptomatic = rand(85:95)/100  ## need to justify this assumption.     
     pct_symptomatic = 1 - pct_asymptomatic   
     pct_shed_asymptomatic = 0.122
     pct_shed_symptomatic = 0.689
 
-    days_symptomatic = pct_symptomatic * 365
+
+    days_symptomatic = pct_symptomatic * 365    
     days_asymptomatic = 365 - days_symptomatic    
   
     shed_symptomatic = days_symptomatic * pct_shed_symptomatic
     shed_asymptomatic = days_asymptomatic * pct_shed_asymptomatic
+
+    #println("sampled days symptomatic (shedding): $days_symptomatic ($shed_symptomatic)")
+    #println("sampled days asymptomatic (shedding): $days_asymptomatic ($shed_asymptomatic) \n")
+
+    if x.treated == 2 
+        ## save the original number of symptomatic days
+        r = days_symptomatic 
+
+        ## there is also reduction in symptomatic days (which is not used in the calculation for reduction of shedding)
+        ## take the original sampled days of symptomatic and reduce by 50%, recalculate asymptomatic days as well
+        days_symptomatic = r * (1 - 0.50)
+        days_asymptomatic = 365 - days_symptomatic
+
+        ## reduce shedding from the original number of symptomatic days (with baseline shedding)
+        ## shedding from asymptomatic is not reduced because this is episodic treatment (but have to recalculate because there are more asympotmatic days)
+        shed_symptomatic = r * pct_shed_symptomatic * (1 - 0.50)
+        shed_asymptomatic = days_asymptomatic * pct_shed_asymptomatic
+
+        #println("treated days (epis) symptomatic (shedding): $days_symptomatic ($shed_symptomatic)")
+        #println("treated days (epis) asymptomatic (shedding): $days_asymptomatic ($shed_asymptomatic) \n")
+    end
+
+    # suppressive treatment.
+    if x.treated == 1 
+        ## save the original number of symptomatic days
+        r = days_symptomatic 
+
+        ## there is also reduction in symptomatic days (which is not used in the calculation for reduction of shedding)
+        ## take the original sampled days of symptomatic and reduce by 50%, recalculate asymptomatic days as well
+        days_symptomatic = r * (1 - 0.50)
+        days_asymptomatic = 365 - days_symptomatic
+
+        ## reduce shedding from the original number of symptomatic days (with baseline shedding)
+        ## shedding from asymptomatic is reduced now by 80% as well since this is suppressive
+        shed_symptomatic = r * pct_shed_symptomatic * (1 - 0.80)
+        shed_asymptomatic = days_asymptomatic * pct_shed_asymptomatic * (1 - 0.80)
+
+        #println("treated (supp) days symptomatic (shedding): $days_symptomatic ($shed_symptomatic)")
+        #println("treated (supp) days asymptomatic (shedding): $days_asymptomatic ($shed_asymptomatic)\n")
+    end
 
     # 50% reduction in symptomatic days if individual is vaccinated.
     if x.vaccinated 
@@ -431,27 +472,16 @@ function _get_shedding_weeks(x::Human)
         shed_symptomatic = days_symptomatic * pct_shed_symptomatic * (1 - 0.50)
         shed_asymptomatic = days_asymptomatic * pct_shed_asymptomatic * (1 - 0.50)
     end
+  
 
-    # suppressive treatment.
-    if x.treated == 1 
-        days_symptomatic = days_symptomatic * (1 - 0.80)    ## need to justify
-        days_asymptomatic = 365 - days_symptomatic
-        shed_symptomatic = days_symptomatic * pct_shed_symptomatic * (1 - 0.50)
-        shed_asymptomatic = days_asymptomatic * pct_shed_asymptomatic * (1 - 0.50)
-    end
-
-    # episodic treatment.
-    if x.treated == 2
-        days_symptomatic = days_symptomatic * (1 - 0.60)   ## need to justify
-        days_asymptomatic = 365 - days_symptomatic
-        shed_symptomatic = days_symptomatic * pct_shed_symptomatic * (1 - 0.50)
-        shed_asymptomatic = days_asymptomatic * pct_shed_asymptomatic
-    end
-
-    weeks_asymptomatic = Int(shed_asymptomatic ÷ 7)
-    weeks_symptomatic = Int(shed_symptomatic ÷ 7)
-
+    ## return the number of weeks they are shedding. 
+    ## if they are shedding for atleast 1 day, make it default to 1 week. 
+    weeks_asymptomatic = shed_asymptomatic > 0 ? max(1, Int(ceil(shed_asymptomatic/7))) : 0
+    weeks_symptomatic =  shed_symptomatic > 0 ? max(1, Int(ceil(shed_symptomatic/7))) : 0 
+    #println("weeks symptomatic (shedding):  $weeks_symptomatic")
+    #println("weeks asymptomatic (shedding): $weeks_asymptomatic")
     return (weeks_asymptomatic, weeks_symptomatic)
+    #return (days_symptomatic, days_asymptomatic)
 end
 
 function _mynaturalhistory(x::Human)
@@ -471,17 +501,12 @@ function _mynaturalhistory(x::Human)
 end
 export _mynaturalhistory
 
-function treatment(type::Int64, coverage)
-    ## this function is run at the end of year.
-    ## it goes through every single human, and if they are infected 
-    ## it sets their treatment on.
+function treatment(type::Int64, coverage)    
     ## if an individual gets sick during the year, their treatment really starts right away
-    ## but in our model, it would get recorded in the following year. 
-
-    ## this function needs unit testing and more logic for episodic as well
+    ## but in our model, it would get recorded in the following year.     
     cnt = 0
     for x in humans
-        if x.health == INF && x.treated == 0
+        if x.health == INF 
             if rand() < coverage
                 x.treated = type
                 cnt += 1
