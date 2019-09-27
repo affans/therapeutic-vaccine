@@ -20,7 +20,7 @@ addprocs(SlurmManager(512), N=16)
 
 
 function calibration(numofsims=0, warmup_beta=0.0, main_beta=0.0, 
-    warmup_time=0, eql_time=0, run_time=0, includetreatment=false)    
+    warmup_time=0, eql_time=0, run_time=0)    
     ## this function runs a certain number of simulations for a given warmup beta/sim_beta.
     # calibration results (sept 19) 
     # P.sim_time = 100 or above. Use the last 10 years. 
@@ -30,7 +30,7 @@ function calibration(numofsims=0, warmup_beta=0.0, main_beta=0.0,
     # the bump of beta after warmup period puts it in some equilibrium. 
     # sims = RemoteChannel(()->Channel{Tuple}(numofsims));
     res = @showprogress pmap(1:numofsims) do x
-        main(x, warmup_beta, main_beta, warmup_time, eql_time, run_time, includetreatment)
+        main(x, warmup_beta, main_beta, warmup_time, eql_time, run_time)
     end 
     avgprev =  zeros(Int64, warmup_time+eql_time+run_time, numofsims)   
     for i = 1:numofsims
@@ -63,6 +63,17 @@ function loopoverbetas()
     end
     return avgs
 end
+
+## description of the model logic.
+# model is at equilibrium with some beta and 12% prevalence. 
+# this is with episodic treatment, automatically (see _get_shedding_weeks()). 
+
+# at the start of the year, a few things will happen. 
+# -> transmission is run. this looks at all infinf/infsusc. 
+# -> for infinf, we simply have to run the natural history of disease. this is important because we would like to count the total number of symptom days (reduced) under different scenarios. 
+# -> for infsusc, we run the natural history of disease for the infected. the symptomatic days/shedding days are recorded  
+# -> -> in addition for infsusc, disease transfer can take place. if it happens, run the natural history of this newly infected person as well. 
+# -> need to record the total number of symptomatic days/shedding days in that year.
 
 
 ## this example shows that even though agents is defined at the global scope and is available all the time 

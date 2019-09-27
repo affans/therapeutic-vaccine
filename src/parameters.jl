@@ -13,12 +13,10 @@
     grp_white = 0.65
     grp_black = 0.12
     grp_asian = 0.06
-    pct_married = 0.20 ## percentage of people married at the start of sims
+    pct_married = 0.20       ## percentage of people married at the start of sims
     pct_partnerchange = 0.50 ## not implemented yet
     beta = 1.0 #0.01
-    asymp_reduction = 1.0 # 0.50
-    p = 0.0
-    q = 0.0
+    asymp_reduction = 1.0    ## make sure interpretation is right away... is it (1 - reduction)*beta or (reduction*beta)
     vac_waningtime::Int64 = 5  ## how long vaccine provides efficacy. 
     scenario = 1 ## 1 = treatment, 2 = vaccine
     treatment_coverage = 1.0
@@ -43,22 +41,21 @@ end
 struct NaturalHistory
     id::Int64
     pd::Int64    
-    vaccinated::Int64     ## whether the individual was vaccinated    
-    numofepisodes::Int64  ## if vaccine is turned on, the "numofepisodes" and "numoflegions" woulnd't change.
-    numoflegions::Int64   ## -- however the effect of vaccine is reflected in "duration_symp" 
-    duration_symp::Int64
-    shedding_symp::Int64
+    duration_symp::Float64
+    shedding_symp::Float64
+    duration_asymp::Float64
+    shedding_asymp::Float64
     numofsex_symp::Int64
-    shedding_asymp::Int64
     numofsex_asymp::Int64
 end
 
 struct SimData
     # data frames
     prevalence::DataFrame
-    partners::DataFrame
-    episodes::DataFrame
     agedist::DataFrame
+    partners::DataFrame
+    episodes::DataFrame # don't use this as of now  
+    disease::DataFrame  
     gendata::DataFrame
  
     function SimData(P)
@@ -72,14 +69,17 @@ struct SimData
         partners = DataFrame([Int64 for i = 1:3], [:partners, :partners_sick, :ctr_xor], P.sim_time)
         partners .= 0
         
-        episodes = DataFrame([Int64 for i = 1:14], [:year, :type, :sex, :dt, fieldnames(NaturalHistory)...])
+        episodes = DataFrame([Int64 for i = 1:12], [:year, :type, :sex, :dt, fieldnames(NaturalHistory)...])
         
         agedist = DataFrame([Int64 for i = 1:4], [:gr1, :gr2, :gr3, :gr4], P.sim_time)
         agedist .= 0
 
         gendata = DataFrame([Int64], [:treated], P.sim_time)
         gendata .= 0
-        new(prev, partners, episodes, agedist, gendata)
+
+        disease = DataFrame([Float64 for _ = 1:7], [:ctr_inf, :ctr_xor, :ctr_dis, :ds, :ss, :da, :sa], P.sim_time)
+        disease .= 0
+        new(prev, agedist, partners, episodes, disease, gendata)
     end
 end
 

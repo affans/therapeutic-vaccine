@@ -14,10 +14,9 @@ export P, humans, main, modelinfo
 const gridsize = 10000
 const P = ModelParameters()
 const humans = Array{Human}(undef, gridsize)
-const verbose = false ## not used
 
-function main(simnumber=1, warmup_beta=0.0, main_beta=0.0, 
-    warmup_time=0, eql_time=0, run_time=0, includetreatment=false) 
+function main(simnumber=1, warmup_beta=0.016, main_beta=0.08, 
+    warmup_time=40, eql_time=100, run_time=50) 
     #Random.seed!(simnumber) 
  
     ## error checks 
@@ -32,56 +31,58 @@ function main(simnumber=1, warmup_beta=0.0, main_beta=0.0,
     create_partners()
     marry()
     init_disease()   
-    treatment(2, 1.0) ## give all the infected people episodic treatment. 
-    # 
 
     ## create the right end points for the time llops
     t1 = warmup_time
     t2 = warmup_time + eql_time
     t3 = warmup_time + eql_time + run_time
 
-    _tmpcntarr = zeros(Int64, P.sim_time)## temp array to store data
-
+    _tmpcntarr = zeros(Int64, P.sim_time) ## temp array to store data
+    
     P.beta = warmup_beta
     for yr = 1:t1
-        transmission(dat, yr)   
+        tret = transmission(dat, yr)   
         age()                
         create_partners()
-        treatment(2, 1.0)
-        record_data(dat, yr) ## record prevalence data        
+        ## record data
+        dat.disease[yr, 1:end] .= tret
+        record_prev(dat, yr) ## record prevalence data        
     end 
     
     P.beta = main_beta
     for yr = (t1 + 1):t2
-        transmission(dat, yr)   
+        tret = transmission(dat, yr)   
         age()                
         create_partners()
-        treatment(2, 1.0)
-        record_data(dat, yr) 
+        ## record data
+        dat.disease[yr, 1:end] .= tret
+        record_prev(dat, yr) ## record prevalence data
     end
 
     ## main scenario run loop
     P.beta = main_beta
     if P.scenario == 1     ## treatment 
-        _func = treatment
+        _func = suppressive_treatment
     elseif P.scenario == 2 ## vaccine
         _func = vaccine
     end
     
     for yr = (t2 + 1):t3        
-        transmission(dat, yr)   
+        tret = transmission(dat, yr)   
         age()                
         create_partners()
-        cnt = _func(1, P.treatment_coverage)
+        cnt = _func(P.treatment_coverage)
         _tmpcntarr[yr] = cnt 
-        record_data(dat, yr)  
+        ## record data
+        dat.disease[yr, 1:end] .= tret
+        record_prev(dat, yr) ## record prevalence data         
     end
     dat.gendata[!, :treated] = _tmpcntarr
 
     return dat ## return the data structure.
 end
 
-function record_data(dat, year)
+function record_prev(dat, year)
     ## this just runs some queries for data collection.
     ## make sure dat is initialized as a SimData object.
     total = length(findall(x -> x.health == INF, humans))
@@ -108,7 +109,7 @@ function record_data(dat, year)
     dat.agedist[year, 3] = length(findall(x -> get_age_group(x.age) == 3, humans))
     dat.agedist[year, 4] = length(findall(x -> get_age_group(x.age) == 4, humans))
 end
-export record_data
+export record_prev
 
 function init_population()    
     @inbounds for i = 1:gridsize       
@@ -280,24 +281,16 @@ end
 export init_disease
 
 function _infinf(sick1::Human, sick2::Human)
-    sick1.health != INF && error("infected person is not infected.")
-    sick2.health != INF && error("infected person is not infected.")
-
     sick1r = _mynaturalhistory(sick1)
     sick2r = _mynaturalhistory(sick2)
 
-    return (false, sick1r, sick2r) 
     ## return false as first element since disease is not transferred. 
-    ## and to keep it consistent with _infsusc() function as well. 
-    ## ofcourse it's false... it's a inf/inf scenario.
+    ## and to keep it consistent with _infsusc() function as well.
+    return (false, sick1r, sick2r)  
 end
 export _infinf
 
 function _infsusc(sick::Human, susc::Human)
-    ## error checks
-    sick.health != INF  && error("infected person is not infected.")
-    susc.health != SUSC && error("susceptible person is not susceptible.")
-
     sickr = _mynaturalhistory(sick) ## run natural history of disease. 
     dt = check_transfer_disease(sickr.numofsex_symp, sickr.numofsex_asymp)
     if dt 
@@ -315,16 +308,17 @@ export _infsusc
 
 function check_transfer_disease(symp_t, asymp_t)
     # symp_t:  number of sexual encounters during symptomatic phase.
-    # asymp_t: number of sexual encounters during asymptomatic phases. Beta is reduced by 50%
+    # asymp_t: number of sexual encounters during asymptomatic phases. 
+    # this is split incase beta needs to be multiplied by a reduction factor.
     dt = false 
     # check if disease will transfer in these sexual encounters for symptomatic episodes
     for i = 1:symp_t
-        if rand() < 1 - (1 - (1 - P.p)*(1 - P.q)*P.beta)
+        if rand() < P.beta
             dt = true
         end
     end    
     for i = 1:asymp_t
-        if rand() < 1 - (1 - (1 - P.p)*(1 - P.q)*P.beta*P.asymp_reduction)   
+        if rand() < P.beta*P.asymp_reduction   
             dt = true
         end
     end 
@@ -343,20 +337,19 @@ end
 export unpack_naturalhistory
 
 function transmission(dataobj::SimData, year = 1)
-    # for each pair
-    # if inf/susc -> see if the inf will transfer disease in the whole year 
-    # -- record the DiseaseInfo()
-    # -- if disease is successfully transferred, the partner is now infected as well. 
-    # -- record DiseaseInfo() -- it could very well be  the partner will have episodes and also recieve vaccine. 
-    
-    # -- these partners may split up and join other susceptibles (but since they are vaccinated nothing will happen)
-
-    ## get the sick pairs. these could be inf/susc or inf/inf
+    ## main transmission dynamics function.    
+ 
+    ## get the sick pairs (i.e. inf/susc or inf/inf)
     sick_pairs = get_partners(onlysick = true)
             
     ctr_xor = 0   ## total number of SUSC/INF pairs
     ctr_dis = 0   ## total number of the SUSC/INF pairs that got sick. 
     ctr_inf = 0   ## total number of INF/INF pairs.
+
+    ds = 0  ## total symptomatic days
+    ss = 0  ## total shedding days
+    da = 0
+    sa = 0
 
     for p in sick_pairs
         p1 = humans[p.a]
@@ -366,16 +359,17 @@ function transmission(dataobj::SimData, year = 1)
 
         if p1health == INF && p2health == INF 
             ctr_inf += 1
-            rdt =  _infinf(p1, p2) #returns a Tuple{Bool, NaturalHistory, NaturalHistory}
+            dt, p1nathis, p2nathis =  _infinf(p1, p2) #returns a Tuple{Bool, NaturalHistory, NaturalHistory}
             
-            ## record the data for both people. rdt[2] and rdt[3] contains the data objects to be unpacked.
-            ## care to make sure p1t, p2t are properly set.
             ## unpack the results (by appending the fields to an already existing tuple)
-            p1t = unpack_naturalhistory(rdt[2], (year, 1, Int(p1.sex), 0))
-            p2t = unpack_naturalhistory(rdt[3], (year, 1, Int(p2.sex), 0))
-
+            p1t = unpack_naturalhistory(p1nathis, (year, 1, Int(p1.sex), 0))
+            p2t = unpack_naturalhistory(p2nathis, (year, 1, Int(p2.sex), 0))
             #push!(dataobj.episodes, p1t)
             #push!(dataobj.episodes, p2t)
+            ds += (p1nathis.duration_symp + p2nathis.duration_symp)
+            ss += (p1nathis.shedding_symp + p2nathis.shedding_symp)
+            da += (p1nathis.duration_asymp + p2nathis.duration_asymp)
+            sa += (p1nathis.shedding_asymp + p2nathis.shedding_asymp)
         end 
 
         if xor(p1health == INF, p2health == INF)
@@ -388,19 +382,19 @@ function transmission(dataobj::SimData, year = 1)
                 sick = p2
                 susc = p1
             end
-            rdt = _infsusc(sick, susc)
-            rdt[1] && (ctr_dis += 1)
-            ## record the data for both people. rdt[2] and rdt[3] contains the data objects to be unpacked.
-            ## care to make sure p1t, p2t are properly set.
-            ## unpack the results (by appending the fields to an already existing tuple)
-            p1t = unpack_naturalhistory(rdt[2], (year, 1, Int(p1.sex), rdt[1]))
-            p2t = unpack_naturalhistory(rdt[3], (year, 1, Int(p2.sex), 0))
-            
+            dt, p1nathis, p2nathis = _infsusc(sick, susc)
+            dt && (ctr_dis += 1)
+            p1t = unpack_naturalhistory(p1nathis, (year, 2, Int(p1.sex), dt))
+            p2t = unpack_naturalhistory(p2nathis, (year, 2, Int(p2.sex), 0))
+            ds += (p1nathis.duration_symp + p2nathis.duration_symp)
+            ss += (p1nathis.shedding_symp + p2nathis.shedding_symp)
+            da += (p1nathis.duration_asymp + p2nathis.duration_asymp)
+            sa += (p1nathis.shedding_asymp + p2nathis.shedding_asymp)
             #push!(dataobj.episodes, p1t)
             #push!(dataobj.episodes, p2t)
         end
     end
-    return ctr_inf, ctr_xor, ctr_dis
+    return (ctr_inf, ctr_xor, ctr_dis, ds, ss, da, sa)
 end
 export transmission
 
@@ -428,7 +422,8 @@ function _get_shedding_weeks(x::Human)
     #println("sampled days symptomatic (shedding): $days_symptomatic ($shed_symptomatic)")
     #println("sampled days asymptomatic (shedding): $days_asymptomatic ($shed_asymptomatic) \n")
 
-    if x.treated == 2 
+    ## hacky way to make sure everyone is under episodic treatment... 
+    if x.treated == 2 || true  
         ## save the original number of symptomatic days
         r = days_symptomatic 
 
@@ -467,58 +462,58 @@ function _get_shedding_weeks(x::Human)
 
     # 50% reduction in symptomatic days if individual is vaccinated.
     if x.vaccinated 
-        days_symptomatic = days_symptomatic * (1 - 0.50)
+        r = days_symptomatic
+
+        ## there is also reduction in symptomatic days (which is not used in the calculation for reduction of shedding)
+        ## take the original sampled days of symptomatic and reduce by 50%, recalculate asymptomatic days as well
+        days_symptomatic = r * (1 - 0.50)
         days_asymptomatic = 365 - days_symptomatic
-        shed_symptomatic = days_symptomatic * pct_shed_symptomatic * (1 - 0.50)
+
+        shed_symptomatic = r * pct_shed_symptomatic * (1 - 0.50)
         shed_asymptomatic = days_asymptomatic * pct_shed_asymptomatic * (1 - 0.50)
     end
   
-
-    ## return the number of weeks they are shedding. 
-    ## if they are shedding for atleast 1 day, make it default to 1 week. 
-    weeks_asymptomatic = shed_asymptomatic > 0 ? max(1, Int(ceil(shed_asymptomatic/7))) : 0
-    weeks_symptomatic =  shed_symptomatic > 0 ? max(1, Int(ceil(shed_symptomatic/7))) : 0 
-    #println("weeks symptomatic (shedding):  $weeks_symptomatic")
-    #println("weeks asymptomatic (shedding): $weeks_asymptomatic")
-    return (weeks_asymptomatic, weeks_symptomatic)
-    #return (days_symptomatic, days_asymptomatic)
+    return round.((days_symptomatic, shed_symptomatic, days_asymptomatic, shed_asymptomatic); digits=2)
 end
 
 function _mynaturalhistory(x::Human)
-    # to do: still have to write unit tests for this
-    x.health != INF && error("person is not sick") # error check
-    weeks_asymptomatic, weeks_symptomatic = _get_shedding_weeks(x)
+    ds, ss, da, sa  = _get_shedding_weeks(x)
     
-    sex_encounters_asymptomatic = [calculatesexfrequency(x.age, x.sex) for i=1:weeks_asymptomatic]
-    sex_encounters_symptomatic = [calculatesexfrequency(x.age, x.sex) for i=1:weeks_symptomatic]
+    ## using the number of shedding days, calculate the number of weeks they are shedding.
+    ## if they are shedding for atleast 1 day, make it default to 1 week. 
+    wa = sa > 0 ? max(1, Int(ceil(sa/7))) : 0
+    ws =  ss > 0 ? max(1, Int(ceil(ss/7))) : 0 
+    #println("weeks symptomatic (shedding):  $weeks_symptomatic")
+    #println("weeks asymptomatic (shedding): $weeks_asymptomatic")
+    
+    sex_encounters_asymptomatic = [calculatesexfrequency(x.age, x.sex) for i=1:wa]
+    sex_encounters_symptomatic = [calculatesexfrequency(x.age, x.sex) for i=1:ws]
     
     numofsex_asymp = sum(sex_encounters_asymptomatic)  
     numofsex_symp = sum(sex_encounters_symptomatic)  
 
-    res = NaturalHistory(x.id, x.partner, 0, 0, 0, 0, weeks_symptomatic, numofsex_symp, 
-    weeks_asymptomatic, numofsex_asymp)
+    res = NaturalHistory(x.id, x.partner, ds, ss, da, sa, numofsex_symp, numofsex_asymp)
     return res
 end
 export _mynaturalhistory
 
-function treatment(type::Int64, coverage)    
+function suppressive_treatment(coverage)    
     ## if an individual gets sick during the year, their treatment really starts right away
     ## but in our model, it would get recorded in the following year.     
     cnt = 0
     for x in humans
         if x.health == INF 
             if rand() < coverage
-                x.treated = type
+                x.treated = 1
                 cnt += 1
             end
         end
     end
     return cnt
 end
+export suppressive_treatment
 
-export treatment
-
-function vaccine()
+function vaccine(coverage)
     # this function is run at the end of year 
     # it goes through every single human, and if they are infected
     # it sets their vaccine status on. 
@@ -527,11 +522,12 @@ function vaccine()
     cnt = 0 ## count of new vaccinated in the year.
     for x in humans
         if x.health == INF
-            x.vaccinated = true
-            x.vaccineexpiry = x.age + P.vac_waningtime 
-            cnt += 1
+            if rand() < coverage
+                x.vaccinated = true
+                x.vaccineexpiry = x.age + P.vac_waningtime 
+                cnt += 1
+            end           
         end
-
         if x.age == x.vaccineexpiry 
             x.vaccinated = false
             x.vaccineexpiry = 999
