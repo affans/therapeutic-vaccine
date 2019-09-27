@@ -1,3 +1,7 @@
+# vaccine function: does coverage affect new or only old individuals 
+# think about what suppressive treatment does.
+# maybe we record a column of symptomatic days only from those under suppressive treatment
+
 module thvaccine
 using Distributions
 using Parameters
@@ -38,12 +42,13 @@ function main(simnumber=1, warmup_beta=0.016, main_beta=0.08,
     t3 = warmup_time + eql_time + run_time
 
     _tmpcntarr = zeros(Int64, P.sim_time) ## temp array to store data
-    
+    _tmpdays = zeros(Int64, P.sim_time)
     P.beta = warmup_beta
     for yr = 1:t1
-        tret = transmission(dat, yr)   
         age()                
         create_partners()
+        tret = transmission(dat, yr)   
+       
         ## record data
         dat.disease[yr, 1:end] .= tret
         record_prev(dat, yr) ## record prevalence data        
@@ -51,9 +56,10 @@ function main(simnumber=1, warmup_beta=0.016, main_beta=0.08,
     
     P.beta = main_beta
     for yr = (t1 + 1):t2
-        tret = transmission(dat, yr)   
         age()                
         create_partners()
+        tret = transmission(dat, yr)   
+       
         ## record data
         dat.disease[yr, 1:end] .= tret
         record_prev(dat, yr) ## record prevalence data
@@ -68,16 +74,19 @@ function main(simnumber=1, warmup_beta=0.016, main_beta=0.08,
     end
     
     for yr = (t2 + 1):t3        
-        tret = transmission(dat, yr)   
         age()                
         create_partners()
-        cnt = _func(P.treatment_coverage)
+        cnt, days = _func(P.treatment_coverage)
         _tmpcntarr[yr] = cnt 
+        _tmpdays[yr] = days
+        tret = transmission(dat, yr)   
+        
         ## record data
         dat.disease[yr, 1:end] .= tret
         record_prev(dat, yr) ## record prevalence data         
     end
-    dat.gendata[!, :treated] = _tmpcntarr
+    dat.treatment[!, :total_treated] = _tmpcntarr
+    dat.treatment[!, :treatment_days] = _tmpcntarr
 
     return dat ## return the data structure.
 end
@@ -499,41 +508,47 @@ export _mynaturalhistory
 
 function suppressive_treatment(coverage)    
     ## if an individual gets sick during the year, their treatment really starts right away
-    ## but in our model, it would get recorded in the following year.     
+    ## but in our model, it would get recorded in the following year.  
+       
     cnt = 0
+    days = 0 
     for x in humans
         if x.health == INF 
-            if rand() < coverage
+            if rand() < coverage && x.treated == 0
                 x.treated = 1
                 cnt += 1
+                days += (49 - x.age)*365
             end
         end
     end
-    return cnt
+    return cnt, days
 end
 export suppressive_treatment
 
 function vaccine(coverage)
     # this function is run at the end of year 
-    # it goes through every single human, and if they are infected
-    # it sets their vaccine status on. 
-    # (if their age is past the expiry, it sets their vaccine status off)
-    
+    # it goes through every single human, and if they are infected, 
+    # they get a vaccine dose based on coverage. 
+    # they do not get a dose everyyear though, only when the vaccine has waned. 
+
     cnt = 0 ## count of new vaccinated in the year.
     for x in humans
+        oldstatus = x.vaccinated
+        if x.age == x.vaccineexpiry 
+            x.vaccinated = false
+            x.vaccineexpiry = 999
+        end
+
         if x.health == INF
-            if rand() < coverage
+            if rand() < coverage || oldstatus ## or this person has been vaccinated before
                 x.vaccinated = true
                 x.vaccineexpiry = x.age + P.vac_waningtime 
                 cnt += 1
             end           
         end
-        if x.age == x.vaccineexpiry 
-            x.vaccinated = false
-            x.vaccineexpiry = 999
-        end
+
     end
-    return cnt
+    return (cnt, 0)  ## return a Tuple here with second entry 0 to keep consistent with the "suppressive function"
 end
 export vaccine
 

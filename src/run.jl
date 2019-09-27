@@ -73,8 +73,19 @@ end
 # -> for infinf, we simply have to run the natural history of disease. this is important because we would like to count the total number of symptom days (reduced) under different scenarios. 
 # -> for infsusc, we run the natural history of disease for the infected. the symptomatic days/shedding days are recorded  
 # -> -> in addition for infsusc, disease transfer can take place. if it happens, run the natural history of this newly infected person as well. 
-# -> need to record the total number of symptomatic days/shedding days in that year.
+# -> total number of symptomatic days/shedding days in year is recorded 
+# -> total number of new infections is also recorded
 
+# -> at the end of the year
+# -> if a person is infected (i.e. newly infected or past infected) and suppressive treatment is on, 
+# -> make this person x.treated = 1. This means they are under suppressive treatment. 
+# -> their shedding is going to be significantly lowered. 
+# -> how to use for cost-effectiveness? record their age. they will be under suppressive until they hit 49
+
+# -> age function. 
+# -> increase everyone's age by one. this is how the population is refreshed every year. 
+# -> everyone over 49 leaves and is replaced by a 15 year old. 
+# -> this is captured in the agedist dataframe
 
 ## this example shows that even though agents is defined at the global scope and is available all the time 
 ## the fact that each worker is "indepedent" and dosn't share memory, 

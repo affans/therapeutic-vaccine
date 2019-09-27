@@ -56,7 +56,7 @@ struct SimData
     partners::DataFrame
     episodes::DataFrame # don't use this as of now  
     disease::DataFrame  
-    gendata::DataFrame
+    treatment::DataFrame
  
     function SimData(P)
         ## set up dataframes. when setting up data frames for yearly level data, add 1 to sim_time for the initial year
@@ -74,12 +74,12 @@ struct SimData
         agedist = DataFrame([Int64 for i = 1:4], [:gr1, :gr2, :gr3, :gr4], P.sim_time)
         agedist .= 0
 
-        gendata = DataFrame([Int64], [:treated], P.sim_time)
-        gendata .= 0
+        treatment = DataFrame([Int64, Int64], [:total_treated, :treatment_days], P.sim_time)
+        treatment .= 0
 
         disease = DataFrame([Float64 for _ = 1:7], [:ctr_inf, :ctr_xor, :ctr_dis, :ds, :ss, :da, :sa], P.sim_time)
         disease .= 0
-        new(prev, agedist, partners, episodes, disease, gendata)
+        new(prev, agedist, partners, episodes, disease, treatment)
     end
 end
 
