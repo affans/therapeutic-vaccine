@@ -1,6 +1,4 @@
-# vaccine function: does coverage affect new or only old individuals 
-# think about what suppressive treatment does.
-# maybe we record a column of symptomatic days only from those under suppressive treatment
+# add distribut
 
 module thvaccine
 using Distributions
@@ -20,9 +18,9 @@ const P = ModelParameters()
 const humans = Array{Human}(undef, gridsize)
 
 function main(simnumber=1, warmup_beta=0.016, main_beta=0.08, 
-    warmup_time=40, eql_time=100, run_time=50) 
+    warmup_time=40, eql_time=100, run_time=20) 
     #Random.seed!(simnumber) 
- 
+    println(simnumber)
     ## error checks 
     warmup_beta + main_beta == 0.0 && error("β is set to zero. No disease will happen")
     P.sim_time = warmup_time + eql_time + run_time
@@ -41,53 +39,37 @@ function main(simnumber=1, warmup_beta=0.016, main_beta=0.08,
     t2 = warmup_time + eql_time
     t3 = warmup_time + eql_time + run_time
 
-    _tmpcntarr = zeros(Int64, P.sim_time) ## temp array to store data
-    _tmpdays = zeros(Int64, P.sim_time)
+    #println("t1: $t1, t2: $t2, t3: $t3")
     P.beta = warmup_beta
-    for yr = 1:t1
-        age()                
+    for yr = 1:(t1-1)
+        dat.disease[yr, 1:end] .= transmission(dat, yr)   
+        record_prev(dat, yr) ## record prevalence data       
+        dat.agedist[yr, [:left, :left_ct]] .= age()
         create_partners()
-        tret = transmission(dat, yr)   
-       
-        ## record data
-        dat.disease[yr, 1:end] .= tret
-        record_prev(dat, yr) ## record prevalence data        
     end 
     
     P.beta = main_beta
-    for yr = (t1 + 1):t2
-        age()                
+    for yr = t1:(t2-1)
+        dat.disease[yr, 1:end] .= transmission(dat, yr)  
+        record_prev(dat, yr) ## record prevalence data     
+        dat.agedist[yr, [:left, :left_ct]] .= age()
         create_partners()
-        tret = transmission(dat, yr)   
-       
-        ## record data
-        dat.disease[yr, 1:end] .= tret
-        record_prev(dat, yr) ## record prevalence data
     end
 
-    ## main scenario run loop
-    P.beta = main_beta
+    ## select the right intervention function
     if P.scenario == 1     ## treatment 
         _func = suppressive_treatment
     elseif P.scenario == 2 ## vaccine
         _func = vaccine
     end
     
-    for yr = (t2 + 1):t3        
-        age()                
+    for yr = (t2):t3     
+        dat.disease[yr, 1:end] .= transmission(dat, yr)        
+        dat.treatment[yr, :total_treated] = _func(P.treatment_coverage)
+        record_prev(dat, yr) ## record data before system changes at end of year  
+        dat.agedist[yr, [:left, :left_ct]] .= age()
         create_partners()
-        cnt, days = _func(P.treatment_coverage)
-        _tmpcntarr[yr] = cnt 
-        _tmpdays[yr] = days
-        tret = transmission(dat, yr)   
-        
-        ## record data
-        dat.disease[yr, 1:end] .= tret
-        record_prev(dat, yr) ## record prevalence data         
     end
-    dat.treatment[!, :total_treated] = _tmpcntarr
-    dat.treatment[!, :treatment_days] = _tmpcntarr
-
     return dat ## return the data structure.
 end
 
@@ -95,7 +77,6 @@ function record_prev(dat, year)
     ## this just runs some queries for data collection.
     ## make sure dat is initialized as a SimData object.
     total = length(findall(x -> x.health == INF, humans))
-    totalpartners = length(findall(x -> x.partner > 0 && x.health == INF, humans))
     ag1 = length(findall(x -> x.health == INF && x.age ∈ 15:19, humans))
     ag2 = length(findall(x -> x.health == INF && x.age ∈ 20:29, humans))
     ag3 = length(findall(x -> x.health == INF && x.age ∈ 30:39, humans))
@@ -110,8 +91,11 @@ function record_prev(dat, year)
     F = length(findall(x -> x.health == INF && x.sex == FEMALE, humans))
     
     ## enter data in dataframes
+    nt = length(findall(x -> x.health == INF && x.newlyinfected == true, humans))
+    dat.prevalence[year, 1:end] .=  (total, nt, ag1, ag2, ag3, ag4, wte, blk, asn, his, M, F)
 
-    dat.prevalence[year, 1:end] .=  (total, totalpartners, ag1, ag2, ag3, ag4, wte, blk, asn, his, M, F)
+    #dat.[!, :tt] = _tmpcntarr
+
     dat.partners[year, 1:end] .=  pair_stats()
     dat.agedist[year, 1] = length(findall(x -> get_age_group(x.age) == 1, humans))
     dat.agedist[year, 2] = length(findall(x -> get_age_group(x.age) == 2, humans))
@@ -131,16 +115,22 @@ export init_population
 function age() 
     ## this increases the age of every individual. If the individual is 49+ we replace with a 15 year old. 
     # if the 49 year old had a partner, that partner is now single and is available for pairing at the next shuffle.
-    # if the 49 year old had a partner and they were married, both of them are replaced.       
+    # if the 49 year old had a partner and they were married, both of them are replaced.
+    # this also set's the newlyinfected parameter back to false.       
     ct = 0
+    ct_inf = 0
     for h in humans 
         h.age += 1 
+        h.newlyinfected = false
         if h.age > 49 
             ct += 1
+            if h.health == INF 
+                ct_inf += 1
+            end
             exit_population(h)
         end
     end
-    return ct
+    return ct, ct_inf
 end
 export age 
 
@@ -306,6 +296,7 @@ function _infsusc(sick::Human, susc::Human)
         ## disease is passed onto the susceptible person
         susc.health = INF 
         susc.firstyearinfection = true
+        susc.newlyinfected = true
         suscr = _mynaturalhistory(susc) ## run natural history of disease.
         return (dt, sickr, suscr) 
     end
@@ -360,6 +351,9 @@ function transmission(dataobj::SimData, year = 1)
     da = 0
     sa = 0
 
+    ds_notreat = 0 
+    ss_notreat = 0
+
     for p in sick_pairs
         p1 = humans[p.a]
         p2 = humans[p.b]
@@ -379,7 +373,18 @@ function transmission(dataobj::SimData, year = 1)
             ss += (p1nathis.shedding_symp + p2nathis.shedding_symp)
             da += (p1nathis.duration_asymp + p2nathis.duration_asymp)
             sa += (p1nathis.shedding_asymp + p2nathis.shedding_asymp)
-        end 
+
+            if p1.treated == 0
+                ds_notreat += p1nathis.duration_symp
+                ss_notreat += p1nathis.shedding_symp
+            end
+
+            if p2.treated == 0
+                ds_notreat += p2nathis.duration_symp
+                ss_notreat += p2nathis.shedding_symp
+            end
+
+        end     
 
         if xor(p1health == INF, p2health == INF)
             ctr_xor += 1
@@ -391,8 +396,11 @@ function transmission(dataobj::SimData, year = 1)
                 sick = p2
                 susc = p1
             end
+            ## if disease is not transferred, the natural history of susc is all zeros.
             dt, p1nathis, p2nathis = _infsusc(sick, susc)
-            dt && (ctr_dis += 1)
+            if dt ## disease has transferred
+                ctr_dis += 1
+            end
             p1t = unpack_naturalhistory(p1nathis, (year, 2, Int(p1.sex), dt))
             p2t = unpack_naturalhistory(p2nathis, (year, 2, Int(p2.sex), 0))
             ds += (p1nathis.duration_symp + p2nathis.duration_symp)
@@ -401,9 +409,19 @@ function transmission(dataobj::SimData, year = 1)
             sa += (p1nathis.shedding_asymp + p2nathis.shedding_asymp)
             #push!(dataobj.episodes, p1t)
             #push!(dataobj.episodes, p2t)
+
+            if p1.treated == 0
+                ds_notreat += p1nathis.duration_symp
+                ss_notreat += p1nathis.shedding_symp
+            end
+
+            if p2.treated == 0
+                ds_notreat += p2nathis.duration_symp
+                ss_notreat += p2nathis.shedding_symp
+            end
         end
     end
-    return (ctr_inf, ctr_xor, ctr_dis, ds, ss, da, sa)
+    return (ctr_inf, ctr_xor, ctr_dis, ds, ss, ds_notreat, ss_notreat, da, sa)
 end
 export transmission
 
@@ -513,15 +531,14 @@ function suppressive_treatment(coverage)
     cnt = 0
     days = 0 
     for x in humans
-        if x.health == INF 
-            if rand() < coverage && x.treated == 0
+        if x.health == INF && x.newlyinfected == true
+            if rand() < coverage
                 x.treated = 1
                 cnt += 1
-                days += (49 - x.age)*365
             end
         end
     end
-    return cnt, days
+    return cnt
 end
 export suppressive_treatment
 
@@ -539,8 +556,8 @@ function vaccine(coverage)
             x.vaccineexpiry = 999
         end
 
-        if x.health == INF
-            if rand() < coverage || oldstatus ## or this person has been vaccinated before
+        if x.health == INF && x.newlyinfected == true
+            if (rand() < coverage) || oldstatus ## or this person has been vaccinated before
                 x.vaccinated = true
                 x.vaccineexpiry = x.age + P.vac_waningtime 
                 cnt += 1
@@ -548,7 +565,7 @@ function vaccine(coverage)
         end
 
     end
-    return (cnt, 0)  ## return a Tuple here with second entry 0 to keep consistent with the "suppressive function"
+    return cnt  ## return a Tuple here with second entry 0 to keep consistent with the "suppressive function"
 end
 export vaccine
 

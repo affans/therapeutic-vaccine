@@ -35,6 +35,7 @@ mutable struct Human
     vaccinated::Bool  # would get vaccinated after first episode
     vaccineexpiry::Int64
     treated::Int64 # 0 = no treatment, 1 = suppressive treatment, 2 = episodic treatment
+    newlyinfected::Bool ## needed for coverage scenarios.
     Human() = new()
 end
 
@@ -62,7 +63,7 @@ struct SimData
         ## set up dataframes. when setting up data frames for yearly level data, add 1 to sim_time for the initial year
 
         ## setup prevalence dataframe
-        _names = Symbol.(["Total","TotalPartners", "Ag1", "Ag2", "Ag3", "Ag4", "Wte", "Blk", "Asn", "His", "M", "F"])
+        _names = Symbol.(["Total", "NewInfections", "Ag1", "Ag2", "Ag3", "Ag4", "Wte", "Blk", "Asn", "His", "M", "F"])
         prev = DataFrame([Int64 for i = 1:length(_names)], _names, P.sim_time)
         prev .= 0
 
@@ -71,13 +72,13 @@ struct SimData
         
         episodes = DataFrame([Int64 for i = 1:12], [:year, :type, :sex, :dt, fieldnames(NaturalHistory)...])
         
-        agedist = DataFrame([Int64 for i = 1:4], [:gr1, :gr2, :gr3, :gr4], P.sim_time)
+        agedist = DataFrame([Int64 for i = 1:6], [:gr1, :gr2, :gr3, :gr4, :left, :left_ct], P.sim_time)
         agedist .= 0
 
-        treatment = DataFrame([Int64, Int64], [:total_treated, :treatment_days], P.sim_time)
+        treatment = DataFrame([Int64], [:total_treated], P.sim_time)
         treatment .= 0
 
-        disease = DataFrame([Float64 for _ = 1:7], [:ctr_inf, :ctr_xor, :ctr_dis, :ds, :ss, :da, :sa], P.sim_time)
+        disease = DataFrame([Float64 for _ = 1:9], [:ctr_inf, :ctr_xor, :ctr_dis, :ds, :ss, :ds_nt, :ss_nt, :da, :sa], P.sim_time)
         disease .= 0
         new(prev, agedist, partners, episodes, disease, treatment)
     end
@@ -118,6 +119,7 @@ function init_human(h::Human)
     h.vaccinated = false
     h.vaccineexpiry = 999
     h.treated = 0
+    h.newlyinfected = false
     return h
 end
 
