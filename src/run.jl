@@ -11,6 +11,7 @@ using Query
 using Statistics
 using thvaccine
 using UnicodePlots
+using Dates
 
 ## multi core. 
 ##addprocs(4; exeflags="--project=.")
@@ -30,19 +31,30 @@ addprocs(SlurmManager(512), N=16)
 @everywhere const run_time=20
 @everywhere const totaltime = warmup_time+eql_time+run_time
 
-function single(scenario = 1.0, cov = 1.0, write=false) 
+function single(scenario = 1.0, cov = 1.0; write=false, dirname=".", showprogress=true) 
+    ## this function runs the main scenario of the model,
+    ## it processes the results by taking the average of simulations
+    ## and returns a named tuple with the results. 
+
     @everywhere @eval thvaccine P.scenario = $scenario
     @everywhere @eval thvaccine P.treatment_coverage = $cov
-    
-    cd = @showprogress pmap(1:numofsims) do x
-        main(x, warmup_beta, main_beta, warmup_time, eql_time, run_time)
-    end 
+
+    if showprogress
+        cd = @showprogress pmap(1:numofsims) do x
+            main(x, warmup_beta, main_beta, warmup_time, eql_time, run_time)
+        end 
+    else
+        cd = pmap(1:numofsims) do x
+            main(x, warmup_beta, main_beta, warmup_time, eql_time, run_time)
+        end 
+    end
+
 
     ## filename setup
     if scenario == 1.0 
-        fname = "supp_cov$(replace(string(cov), "." => "_"))"
+        fname = "supp_cov$(replace(string(cov), "." => ""))"
     else
-        fname = "vacc_cov$(replace(string(cov), "." => "_"))"
+        fname = "vacc_cov$(replace(string(cov), "." => ""))"
     end
 
     ## first let's get the average prevalence
@@ -107,22 +119,68 @@ function single(scenario = 1.0, cov = 1.0, write=false)
     x = vcat([cd[i].partners for i = 1:length(cd)]...)
     
     if write
-        CSV.write("raw_partners_$fname.dat", x)    
-
-        CSV.write("raw_disease_$fname.dat", d) 
-        CSV.write("avg_disease_$fname.dat", dd)         
-        CSV.write("raw_treatments_$fname.dat", t)    
-        CSV.write("avg_treatments_$fname.dat", tt)    
-        CSV.write("raw_agedist_$fname.dat", a)
-        CSV.write("avg_agedist_$fname.dat", aa)    
-        CSV.write("raw_prevalence_$fname.dat", p)
-        CSV.write("avg_prevalence_$fname.dat", pp)
-        writedlm("avg_prev_$fname.dat", av)      
+        CSV.write("$dirname/modeloutput/raw_partners_$fname.dat", x)    
+        CSV.write("$dirname/modeloutput/$(fname)_raw_disease.dat", d) 
+        CSV.write("$dirname/modeloutput/$(fname)_avg_disease.dat", dd)         
+        CSV.write("$dirname/modeloutput/$(fname)_raw_treatments.dat", t)    
+        CSV.write("$dirname/modeloutput/$(fname)_avg_treatments.dat", tt)    
+        CSV.write("$dirname/modeloutput/$(fname)_raw_agedist.dat", a)
+        CSV.write("$dirname/modeloutput/$(fname)_avg_agedist.dat", aa)    
+        CSV.write("$dirname/modeloutput/$(fname)_raw_prevalence.dat", p)
+        CSV.write("$dirname/modeloutput/$(fname)_avg_prevalence.dat", pp)
+        writedlm("$dirname/modeloutput/$(fname)_avg_prev.dat", av)      
     end
 
-    return (av, dd, pp, tt, aa)
+    return (av=av, dd=dd, pp=pp, tt=tt, aa=aa)
 end
 
+function scenarios()
+    ## 
+    dn = Dates.format(Dates.now(), dateformat"mmdd_HHMM")
+    mkpath("$dn/modeloutput")
+    println("created directory: $dn")
+    for cov in (0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9) #, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
+        fp = string(Int(cov*100))
+        println("running coverage: $fp%")
+        t1 = single(1.0, cov; write=true, dirname=dn, showprogress=false);
+        v1 = single(2.0, cov; write=true, dirname=dn, showprogress=false);        
+        process(t1, v1, "$dn/m$fp.dat")
+    end
+end
+
+function process(t, v, fname)
+    ## this function takes the results of two "single()" runs and puts together a 
+    ## dataframe that combines the two results. 
+    year = [i for i = 1:totaltime]
+    
+    ct_t = t.tt.treatment_cost 
+    ce_t = t.tt.episodic_cost 
+    
+    ct_v = v.tt.treatment_cost 
+    ce_v = v.tt.episodic_cost 
+
+    ds_t = t.dd.avg_ds
+    ds_v = v.dd.avg_ds
+
+    t_t = t.tt.avg_treated
+    t_v = v.tt.avg_treated
+
+    i_t = t.pp.new_avg_infections
+    i_v = v.pp.new_avg_infections
+
+    p_t = t.pp.total_avg_prevalence
+    p_v = v.pp.total_avg_prevalence
+
+    idf = DataFrame(yr=year, cost_treatment_supp = ct_t, cost_episodic_supp = ce_t,
+                             cost_treatment_vacc = ct_v, cost_episodic_vacc = ce_v,
+                             symp_days_supp = ds_t, symp_days_vacc = ds_v,
+                             num_treated_supp = t_t, num_treated_vacc = t_v, 
+                             new_infect_supp=i_t, new_infect_vacc=i_v,
+                             prev_supp = p_t, prev_vacc = p_v)
+
+    CSV.write(fname, idf)
+    return idf
+end
 
 
 ## description of the model logic.

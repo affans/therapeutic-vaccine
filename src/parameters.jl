@@ -72,7 +72,7 @@ struct SimData
         
         episodes = DataFrame([Int64 for i = 1:12], [:year, :type, :sex, :dt, fieldnames(NaturalHistory)...])
         
-        agedist = DataFrame([Int64 for i = 1:6], [:gr1, :gr2, :gr3, :gr4, :left, :left_ct], P.sim_time)
+        agedist = DataFrame([Int64 for i = 1:7], [:gr1, :gr2, :gr3, :gr4, :left, :left_ct, :left_treated], P.sim_time)
         agedist .= 0
 
         treatment = DataFrame([Int64], [:total_treated], P.sim_time)

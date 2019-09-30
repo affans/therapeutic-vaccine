@@ -19,7 +19,7 @@ const humans = Array{Human}(undef, gridsize)
 
 function main(simnumber=1, warmup_beta=0.016, main_beta=0.08, 
     warmup_time=40, eql_time=100, run_time=20) 
-    #Random.seed!(simnumber) 
+    Random.seed!(simnumber) 
     println(simnumber)
     ## error checks 
     warmup_beta + main_beta == 0.0 && error("β is set to zero. No disease will happen")
@@ -67,7 +67,7 @@ function main(simnumber=1, warmup_beta=0.016, main_beta=0.08,
         dat.disease[yr, 1:end] .= transmission(dat, yr)        
         dat.treatment[yr, :total_treated] = _func(P.treatment_coverage)
         record_prev(dat, yr) ## record data before system changes at end of year  
-        dat.agedist[yr, [:left, :left_ct]] .= age()
+        dat.agedist[yr, [:left, :left_ct, :left_treated]] .= age()
         create_partners()
     end
     return dat ## return the data structure.
@@ -117,8 +117,9 @@ function age()
     # if the 49 year old had a partner, that partner is now single and is available for pairing at the next shuffle.
     # if the 49 year old had a partner and they were married, both of them are replaced.
     # this also set's the newlyinfected parameter back to false.       
-    ct = 0
-    ct_inf = 0
+    ct = 0          ## number of people leaving
+    ct_inf = 0      ## number of people leaving that were infected
+    ct_treated = 0  ## number of people leaving that were vaccinated/treated
     for h in humans 
         h.age += 1 
         h.newlyinfected = false
@@ -127,10 +128,13 @@ function age()
             if h.health == INF 
                 ct_inf += 1
             end
+            if h.treated > 0 || h.vaccinated == true
+                ct_treated += 1
+            end
             exit_population(h)
         end
     end
-    return ct, ct_inf
+    return ct, ct_inf, ct_treated
 end
 export age 
 
@@ -556,8 +560,8 @@ function vaccine(coverage)
             x.vaccineexpiry = 999
         end
 
-        if x.health == INF && x.newlyinfected == true
-            if (rand() < coverage) || oldstatus ## or this person has been vaccinated before
+        if x.health == INF 
+            if (rand() < coverage && x.newlyinfected == true) || oldstatus ## or this person has been vaccinated before
                 x.vaccinated = true
                 x.vaccineexpiry = x.age + P.vac_waningtime 
                 cnt += 1
