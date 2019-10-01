@@ -18,7 +18,7 @@ const P = ModelParameters()
 const humans = Array{Human}(undef, gridsize)
 
 function main(simnumber=1, warmup_beta=0.016, main_beta=0.08, 
-    warmup_time=40, eql_time=100, run_time=20) 
+    warmup_time=40, eql_time=100, run_time=10) 
     Random.seed!(simnumber) 
     println(simnumber)
     ## error checks 
@@ -535,8 +535,8 @@ function suppressive_treatment(coverage)
     cnt = 0
     days = 0 
     for x in humans
-        if x.health == INF && x.newlyinfected == true
-            if rand() < coverage
+        if x.health == INF
+            if (rand() < coverage && x.newlyinfected == true) || x.treated == 1
                 x.treated = 1
                 cnt += 1
             end
@@ -554,14 +554,8 @@ function vaccine(coverage)
 
     cnt = 0 ## count of new vaccinated in the year.
     for x in humans
-        oldstatus = x.vaccinated
-        if x.age == x.vaccineexpiry 
-            x.vaccinated = false
-            x.vaccineexpiry = 999
-        end
-
         if x.health == INF 
-            if (rand() < coverage && x.newlyinfected == true) || oldstatus ## or this person has been vaccinated before
+            if (rand() < coverage && x.newlyinfected == true) || x.vaccinated == true ## or this person has been vaccinated before
                 x.vaccinated = true
                 x.vaccineexpiry = x.age + P.vac_waningtime 
                 cnt += 1
