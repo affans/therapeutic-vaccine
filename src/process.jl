@@ -1,11 +1,22 @@
 ## this file runs the main scenarios and processes the results. 
+
+
+@everywhere  numofsims = 500
+@everywhere  warmup_beta=0.016
+@everywhere  main_beta=0.07
+@everywhere  warmup_time=50
+@everywhere  eql_time=100 
+@everywhere  run_time=10
+@everywhere  totaltime = warmup_time+eql_time+run_time
+
+
 function single(scenario = 1.0, cov = 1.0; write=false, dirname=".", showprogress=true) 
     ## this function runs the main scenario of the model,
     ## it processes the results by taking the average of simulations
     ## and returns a named tuple with the results. 
     @everywhere @eval thvaccine P.scenario = $scenario
     @everywhere @eval thvaccine P.treatment_coverage = $cov
-
+    println("main_beta: $(main_beta)")
     if showprogress
         cd = @showprogress pmap(1:numofsims) do x
             main(x, warmup_beta, main_beta, warmup_time, eql_time, run_time)
@@ -49,12 +60,15 @@ function single(scenario = 1.0, cov = 1.0; write=false, dirname=".", showprogres
     dd = d |> @groupby(_.year) |>
         @map({year=key(_), avg_ds=mean(_.ds), avg_ss=mean(_.ss), avg_ds_nt=mean(_.ds_nt), avg_ss_nt=mean(_.ss_nt), avg_da=mean(_.da), avg_sa=mean(_.sa)}) |> DataFrame
 
-    ## create cumalative sums of year 141 to year 150
+    ## create cumalative sums of the first ten years. 
+    stime = warmup_time+eql_time+1
+    println("stime is: $stime \n")
+
     dfs = []
     for i in 0:9
         #q(row) = 141 <= row.year <= 141+i
         #df_temp = filter(q, d)
-        df_temp = d |> @filter(141 <= _.year <= 141+i) |> @groupby(_.sim) |>
+        df_temp = d |> @filter(stime <= _.year <= stime+i) |> @groupby(_.sim) |>
             @map({sim=key(_), sum_ds=sum(_.ds), sum_ss=sum(_.ss), sum_ds_nt=sum(_.ds_nt), sum_ss_nt=sum(_.ss_nt), sum_da=sum(_.da), sum_sa=sum(_.sa)}) |> DataFrame
         push!(dfs, df_temp)
     end
@@ -65,7 +79,7 @@ function single(scenario = 1.0, cov = 1.0; write=false, dirname=".", showprogres
          @map({year=key(_), avg_prevalence=mean(_.Total), avg_new_infections=mean(_.NewInfections)}) |> DataFrame
     pfs = []
     for i in 0:9
-        df_temp = p |> @filter(141 <= _.year <= 141+i) |> @groupby(_.sim) |>                  
+        df_temp = p |> @filter(stime <= _.year <= stime+i) |> @groupby(_.sim) |>                  
                   @map({sim=key(_), sum_prevalence=sum(_.Total), sum_new_infections=sum(_.NewInfections)}) |> DataFrame
         push!(pfs, df_temp)
     end 
@@ -76,7 +90,7 @@ function single(scenario = 1.0, cov = 1.0; write=false, dirname=".", showprogres
          @map({year=key(_), avg_left=mean(_.left), avg_left_infected=mean(_.left_ct), avg_left_treated=mean(_.left_treated)}) |> DataFrame
     afs = []
     for i in 0:9
-        df_temp = a |> @filter(141 <= _.year <= 141+i) |> @groupby(_.sim) |>                  
+        df_temp = a |> @filter(stime <= _.year <= stime+i) |> @groupby(_.sim) |>                  
                   @map({sim=key(_), sum_left=sum(_.left), sum_left_infected=sum(_.left_ct), sum_left_treated=sum(_.left_treated)}) |> DataFrame
         push!(afs, df_temp)
     end 
@@ -108,7 +122,7 @@ function single(scenario = 1.0, cov = 1.0; write=false, dirname=".", showprogres
    
     tfs = []
     for i in 0:9
-        df_temp = t |> @filter(141 <= _.year <= 141+i) |> @groupby(_.sim) |>                  
+        df_temp = t |> @filter(stime <= _.year <= stime+i) |> @groupby(_.sim) |>                  
                   @map({sim=key(_), sum_treated=mean(_.total_treated), sum_cost = sum(_.totalcost)}) |> DataFrame
         push!(tfs, df_temp)
     end 
@@ -157,7 +171,7 @@ function scenarios()
         
         for i = 1:10 ## for the yearly simulation sums
             adf = process_sim_sums(i, t1, v1)
-            CSV.write("$dn/q$(fp)_yr$i.dat", idf)
+            CSV.write("$dn/q$(fp)_yr$i.dat", adf)
         end
     end
 end

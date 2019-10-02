@@ -295,7 +295,7 @@ export _infinf
 
 function _infsusc(sick::Human, susc::Human)
     sickr = _mynaturalhistory(sick) ## run natural history of disease. 
-    dt = check_transfer_disease(sickr.numofsex_symp, sickr.numofsex_asymp)
+    dt = check_transfer_disease(sick, sickr.numofsex_symp, sickr.numofsex_asymp)
     if dt 
         ## disease is passed onto the susceptible person
         susc.health = INF 
@@ -310,18 +310,31 @@ function _infsusc(sick::Human, susc::Human)
 end
 export _infsusc
 
-function check_transfer_disease(symp_t, asymp_t)
+function check_transfer_disease(x, symp_t, asymp_t)
     # symp_t:  number of sexual encounters during symptomatic phase.
     # asymp_t: number of sexual encounters during asymptomatic phases. 
     # this is split incase beta needs to be multiplied by a reduction factor.
     dt = false 
     # check if disease will transfer in these sexual encounters for symptomatic episodes
+    beta = P.beta
     for i = 1:symp_t
-        if rand() < P.beta
+        if x.vaccinated 
+            beta = P.beta*(1-0.78)
+        end 
+        if x.treated == 1
+            beta = P.beta*(1-0.80)
+        end
+        if rand() < beta
             dt = true
         end
     end    
     for i = 1:asymp_t
+        if x.vaccinated 
+            beta = P.beta*(1-0.50)
+        end 
+        if x.treated == 1
+            beta = P.beta*(1-0.80)
+        end
         if rand() < P.beta*P.asymp_reduction   
             dt = true
         end
@@ -465,7 +478,7 @@ function _get_shedding_weeks(x::Human)
 
         ## reduce shedding from the original number of symptomatic days (with baseline shedding)
         ## shedding from asymptomatic is not reduced because this is episodic treatment (but have to recalculate because there are more asympotmatic days)
-        shed_symptomatic = r * pct_shed_symptomatic * (1 - 0.50)
+        shed_symptomatic = r * pct_shed_symptomatic #* (1 - 0.50)
         shed_asymptomatic = days_asymptomatic * pct_shed_asymptomatic
 
         #println("treated days (epis) symptomatic (shedding): $days_symptomatic ($shed_symptomatic)")
@@ -484,8 +497,8 @@ function _get_shedding_weeks(x::Human)
 
         ## reduce shedding from the original number of symptomatic days (with baseline shedding)
         ## shedding from asymptomatic is reduced now by 80% as well since this is suppressive
-        shed_symptomatic = r * pct_shed_symptomatic * (1 - 0.80)
-        shed_asymptomatic = days_asymptomatic * pct_shed_asymptomatic * (1 - 0.80)
+        shed_symptomatic = r * pct_shed_symptomatic #* (1 - 0.80)
+        shed_asymptomatic = days_asymptomatic * pct_shed_asymptomatic #* (1 - 0.80)
 
         #println("treated (supp) days symptomatic (shedding): $days_symptomatic ($shed_symptomatic)")
         #println("treated (supp) days asymptomatic (shedding): $days_asymptomatic ($shed_asymptomatic)\n")
@@ -500,12 +513,15 @@ function _get_shedding_weeks(x::Human)
         days_symptomatic = r * (1 - 0.50)
         days_asymptomatic = 365 - days_symptomatic
 
-        shed_symptomatic = r * pct_shed_symptomatic * (1 - 0.50)
-        shed_asymptomatic = days_asymptomatic * pct_shed_asymptomatic * (1 - 0.50)
+        shed_symptomatic = r * pct_shed_symptomatic #* (1 - 0.7)
+        shed_asymptomatic = days_asymptomatic * pct_shed_asymptomatic #* (1 - 0.7)
     end
   
     return round.((days_symptomatic, shed_symptomatic, days_asymptomatic, shed_asymptomatic); digits=2)
 end
+
+# 22 days -> convert to number of weeks, 4 weeks -> 2/sex per week = 8 interactions. 
+# 
 
 function _mynaturalhistory(x::Human)
     ds, ss, da, sa  = _get_shedding_weeks(x)

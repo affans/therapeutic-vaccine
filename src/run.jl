@@ -23,13 +23,6 @@ addprocs(SlurmManager(512), N=16)
 @everywhere using thvaccine
 @everywhere using ProgressMeter
 
-@everywhere const numofsims = 500
-@everywhere const warmup_beta=0.016
-@everywhere const main_beta=0.08
-@everywhere const warmup_time=40
-@everywhere const eql_time=100 
-@everywhere const run_time=10
-@everywhere const totaltime = warmup_time+eql_time+run_time
 
 
 ## description of the model logic.
