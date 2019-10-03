@@ -17,10 +17,10 @@ const gridsize = 10000
 const P = ModelParameters()
 const humans = Array{Human}(undef, gridsize)
 
-function main(simnumber=1, warmup_beta=0.016, main_beta=0.08, 
-    warmup_time=40, eql_time=100, run_time=10) 
+function main(simnumber=1, warmup_beta=0.016, main_beta=0.07, 
+    warmup_time=50, eql_time=100, run_time=10) 
     Random.seed!(simnumber) 
-    println(simnumber)
+    #println(simnumber)
     ## error checks 
     warmup_beta + main_beta == 0.0 && error("β is set to zero. No disease will happen")
     P.sim_time = warmup_time + eql_time + run_time
@@ -319,7 +319,7 @@ function check_transfer_disease(x, symp_t, asymp_t)
     beta = P.beta
     for i = 1:symp_t
         if x.vaccinated 
-            beta = P.beta*(1-0.78)
+            beta = P.beta*(1-P.vaccine_efficacy)
         end 
         if x.treated == 1
             beta = P.beta*(1-0.80)
@@ -330,7 +330,7 @@ function check_transfer_disease(x, symp_t, asymp_t)
     end    
     for i = 1:asymp_t
         if x.vaccinated 
-            beta = P.beta*(1-0.50)
+            beta = P.beta*(1-P.vaccine_efficacy)
         end 
         if x.treated == 1
             beta = P.beta*(1-0.80)

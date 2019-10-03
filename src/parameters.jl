@@ -19,7 +19,8 @@
     asymp_reduction = 1.0    ## make sure interpretation is right away... is it (1 - reduction)*beta or (reduction*beta)
     vac_waningtime::Int64 = 5  ## how long vaccine provides efficacy. 
     scenario = 1 ## 1 = treatment, 2 = vaccine
-    treatment_coverage = 1.0
+    treatment_coverage = 0.5
+    vaccine_efficacy = 0.5  
 end
 
 mutable struct Human

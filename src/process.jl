@@ -1,6 +1,6 @@
 ## this file runs the main scenarios and processes the results. 
 
-
+## constants that don't need to change a lot once fixed. 
 @everywhere  numofsims = 500
 @everywhere  warmup_beta=0.016
 @everywhere  main_beta=0.07
@@ -10,13 +10,16 @@
 @everywhere  totaltime = warmup_time+eql_time+run_time
 
 
-function single(scenario = 1.0, cov = 1.0; write=false, dirname=".", showprogress=true) 
+function single(scenario = 1.0, cov = 1.0, vcpi = 50, efficacy = 0.8; showprogress=true) 
     ## this function runs the main scenario of the model,
     ## it processes the results by taking the average of simulations
     ## and returns a named tuple with the results. 
     @everywhere @eval thvaccine P.scenario = $scenario
     @everywhere @eval thvaccine P.treatment_coverage = $cov
-    println("main_beta: $(main_beta)")
+    @everywhere @eval thvaccine P.vaccine_efficacy = $efficacy
+
+    println("single simulation details: beta: $(main_beta), total time = $totaltime")
+    println("parameters: scenario = $scenario, coverage = $cov, efficacy = $efficacy, vcpi = $vcpi")
     if showprogress
         cd = @showprogress pmap(1:numofsims) do x
             main(x, warmup_beta, main_beta, warmup_time, eql_time, run_time)
@@ -95,40 +98,28 @@ function single(scenario = 1.0, cov = 1.0; write=false, dirname=".", showprogres
         push!(afs, df_temp)
     end 
     
-    # treatment
+    # treatment and cost analysis
     t = vcat([cd[i].treatment for i = 1:length(cd)]...)
-    # add the episodic cost
-    t[!, :ecost] .= d |> @map(_.ds_nt*3) |> collect
+    # add the episodic cost. this is the number of episodic days from the non treated individuals. 
+    # this is because agents on suppressive treatment need not get episodic treatment. 
     sk = Gamma(1.94, 1.42)
+    t[!, :ecost] .= d |> @map(_.ds_nt*rand(sk)) |> collect
     # treatment cost 
-    if scenario == 1
-        t[!, :tcost] .= t |> @map(_.total_treated*365*3)
-    else 
-        t[!, :tcost] .= t |> @map(_.total_treated*50)
+    if scenario == 1  ## treatment scenario
+        t[!, :tcost] .= t |> @map(_.total_treated*365*rand(sk))
+    else ## vaccine scenario
+        t[!, :tcost] .= t |> @map(_.total_treated*vcpi)
     end
     t[!, :totalcost] .= t.ecost + t.tcost
     
-    tt = t |> @groupby(_.year) |> @map({year=key(_), avg_treated=mean(_.total_treated)}) |> DataFrame
-    # add cost of treatment
-    if scenario == 2.0
-        tt[!, :treatment_cost] .= tt |> @map(_.avg_treated*50) |> collect 
-        tt[!, :episodic_cost] .= dd |> @map(_.avg_ds_nt*3) |> collect
-    end
-    if scenario == 1.0
-        tt[!, :treatment_cost] .= tt |> @map(_.avg_treated*365*3) |> collect 
-        tt[!, :episodic_cost] .= dd |> @map(_.avg_ds_nt*3) |> collect
-    end
-    tt[!, :totalcost] .= tt.treatment_cost + tt.episodic_cost
-   
+    tt = t |> @groupby(_.year) |> @map({year=key(_), avg_treated=mean(_.total_treated), tcost=mean(_.tcost)}) |> DataFrame 
+
     tfs = []
     for i in 0:9
         df_temp = t |> @filter(stime <= _.year <= stime+i) |> @groupby(_.sim) |>                  
                   @map({sim=key(_), sum_treated=mean(_.total_treated), sum_cost = sum(_.totalcost)}) |> DataFrame
         push!(tfs, df_temp)
     end 
-
-    # check the original code using the new dataframe
-    # ttt = t |> @groupby(_.year) |> @map({year=key(_), tcost=mean(_.tcost)}) |> DataFrame 
 
     ## merge all the dataframes together.
     rawdata = join(d, p, on=[:year, :sim])
@@ -153,25 +144,31 @@ end
 function scenarios()
     ## 
     dn = "/data/hsvvaccine/$(Dates.format(Dates.now(), dateformat"mmdd_HHMM"))"
-    mkpath("$dn/modeloutput")
+   
     println("created directory: $dn")
-    for cov in ( 0.5) #, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
-        fp = string(Int(cov*100))
-        println("running coverage: $fp%")
-        t1 = single(1.0, cov; write=true, dirname=dn, showprogress=false);
-        v1 = single(2.0, cov; write=true, dirname=dn, showprogress=false);  
-        
-        CSV.write("$dn/modeloutput/($fp)_vac_raw_disease.dat", v1.rd) 
-        CSV.write("$dn/modeloutput/($fp)_sup_raw_disease.dat", t1.rd) 
-        CSV.write("$dn/modeloutput/($fp)_vac_yearavg_disease.dat", v1.ya) 
-        CSV.write("$dn/modeloutput/($fp)_sup_yearavg_disease.dat", t1.ya)
-        
-        idf = process_yearly_averages(t1, v1)        
-        CSV.write("$dn/m$fp.dat", idf)
-        
-        for i = 1:10 ## for the yearly simulation sums
-            adf = process_sim_sums(i, t1, v1)
-            CSV.write("$dn/q$(fp)_yr$i.dat", adf)
+
+    for eff in (0.3, 0.4, 0.5, 0.6, 0.7, 0.8)
+        for vcpi in (50, 75, 100, 150, 200, 250)
+            for cov in (0.2, 0.4, 0.5, 0.6, 0.8) 
+                fp = "eff$(Int(eff*100))_vcpi$(vcpi)_cov$(Int(cov*100))"
+                mkpath("$dn/$fp/modeloutput")
+                t1 = single(1.0, cov, vcpi, eff; showprogress=false);
+                v1 = single(2.0, cov, vcpi, eff; showprogress=false);  
+
+                CSV.write("$dn/$fp/modeloutput/vac_raw_disease.dat", v1.rd) 
+                CSV.write("$dn/$fp/modeloutput/sup_raw_disease.dat", t1.rd) 
+                CSV.write("$dn/$fp/modeloutput/vac_yearavg_disease.dat", v1.ya) 
+                CSV.write("$dn/$fp/modeloutput/sup_yearavg_disease.dat", t1.ya)
+                
+                # process the individial scenarios into one dataframe
+                idf = process_yearly_averages(t1, v1)        
+                CSV.write("$dn/$fp/m$(Int(cov*100)).dat", idf)
+
+                for i = 1:10 ## for the 10 years post warm-up simulation sums
+                    adf = process_sim_sums(i, t1, v1)
+                    CSV.write("$dn/$fp/q$(Int(cov*100))_yr$i.dat", adf)
+                end
+            end
         end
     end
 end
@@ -181,8 +178,8 @@ function process_yearly_averages(t, v)
     ## dataframe that combines the two results. 
     year = [i for i = 1:totaltime]
     
-    cst_t = t.ya.treatment_cost 
-    cst_v = v.ya.episodic_cost 
+    cst_t = t.ya.tcost 
+    cst_v = v.ya.tcost 
    
     ds_t = t.ya.avg_ds
     ds_v = v.ya.avg_ds
