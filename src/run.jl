@@ -1,4 +1,11 @@
 ## main run file for HSV project. 
+## this file loads all the packages required for analysis (the packages required for the simulations 
+## are added automatically when adding the packing using `add thvaccine`).
+
+## this file also sets up the parallelism: the code you see is specific to ABM's high performance cluster.  
+## you can change this to connect to another cluster or just run `addprocs()` 
+## to connect to your local PC. See Julia's documentation on `addprocs`.
+
 using Distributed
 using Random
 using DelimitedFiles
@@ -13,13 +20,9 @@ using thvaccine
 using UnicodePlots
 using Dates
 
-## multi core. 
-##addprocs(4; exeflags="--project=.")
-## a = SlurmManager(200, N=17)
 
 #addprocs(SlurmManager(10*32), N=32) ## this throws an error because N = 32. Create PR. 
 addprocs(SlurmManager(512), N=16) 
-
 @everywhere using thvaccine
 @everywhere using ProgressMeter
 
