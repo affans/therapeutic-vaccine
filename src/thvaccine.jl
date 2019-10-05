@@ -314,15 +314,15 @@ function check_transfer_disease(x, symp_t, asymp_t)
     # symp_t:  number of sexual encounters during symptomatic phase.
     # asymp_t: number of sexual encounters during asymptomatic phases. 
     # this is split incase beta needs to be multiplied by a reduction factor (i.e. two for loops)
-    # although this dosn't really make a difference since there is no reduction of beta while subclinical.
-    # so I remove the split in this commit. 
+    # oct 5th: during sexual interactions in symptomatic days, the vaccinated individual has no reduction in beta. 
+    # ... seyed has papers justifying this. 
 
     dt = false     
     beta = P.beta
-    for i = 1:(symp_t + asymp_t)
-        if x.vaccinated 
-            beta = beta*(1-P.vaccine_efficacy)
-        end 
+    for i = 1:symp_t
+        # if x.vaccinated 
+        #     beta = beta*(1-P.vaccine_efficacy)
+        # end 
         if x.treated == 1
             beta = beta*(1-0.80)
         end
@@ -330,17 +330,17 @@ function check_transfer_disease(x, symp_t, asymp_t)
             dt = true
         end
     end    
-    # for i = 1:asymp_t
-    #     if x.vaccinated 
-    #         beta = P.beta*(1-P.vaccine_efficacy)
-    #     end 
-    #     if x.treated == 1
-    #         beta = P.beta*(1-0.80)
-    #     end
-    #     if rand() < beta*P.asymp_reduction   
-    #         dt = true
-    #     end
-    # end 
+    for i = 1:asymp_t
+        if x.vaccinated 
+            beta = P.beta*(1-P.vaccine_efficacy)
+        end 
+        if x.treated == 1
+            beta = P.beta*(1-0.80)
+        end
+        if rand() < beta*P.asymp_reduction   
+            dt = true
+        end
+    end 
     return dt
 end
 export check_transfer_disease
