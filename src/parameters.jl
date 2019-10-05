@@ -15,10 +15,7 @@
     grp_asian = 0.06
     pct_married = 0.20       ## percentage of people married at the start of sims
     pct_partnerchange = 0.50 ## not implemented yet
-    beta = 1.0 #0.01
-    asymp_reduction = 1.0    ## make sure interpretation is right away... is it (1 - reduction)*beta or (reduction*beta)
-    vac_waningtime::Int64 = 5  ## how long vaccine provides efficacy. 
-    scenario = 1 ## 1 = treatment, 2 = vaccine
+    beta = 1.0 #0.01     
     treatment_coverage = 0.5
     vaccine_efficacy = 0.5  
 end
@@ -33,8 +30,7 @@ mutable struct Human
     partner::Int64      ## partnership and pairings
     married::Bool
     firstyearinfection::Bool # infection first year
-    vaccinated::Bool  # would get vaccinated after first episode
-    vaccineexpiry::Int64
+    vaccinated::Bool  # would get vaccinated after first episode  
     treated::Int64 # 0 = no treatment, 1 = suppressive treatment, 2 = episodic treatment
     newlyinfected::Bool ## needed for coverage scenarios.
     Human() = new()
@@ -118,7 +114,6 @@ function init_human(h::Human)
     h.married = false
     h.firstyearinfection = true
     h.vaccinated = false
-    h.vaccineexpiry = 999
     h.treated = 0
     h.newlyinfected = false
     return h

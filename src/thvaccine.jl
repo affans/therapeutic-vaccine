@@ -17,14 +17,18 @@ const gridsize = 10000
 const P = ModelParameters()
 const humans = Array{Human}(undef, gridsize)
 
-function main(simnumber=1, warmup_beta=0.016, main_beta=0.07, 
+function main(simnumber=1, scenario = 1.0, cov=0.0, efficacy=0.0, warmup_beta=0.016, main_beta=0.07, 
     warmup_time=50, eql_time=100, run_time=10) 
     Random.seed!(simnumber) 
     #println(simnumber)
     ## error checks 
     warmup_beta + main_beta == 0.0 && error("β is set to zero. No disease will happen")
+    
     P.sim_time = warmup_time + eql_time + run_time
     P.sim_time == 0 && error("simulation time is set to zero")
+
+    P.treatment_coverage = cov
+    P.vaccine_efficacy = efficacy
 
     dat = SimData(P)  # initialize data collection
 
@@ -57,12 +61,12 @@ function main(simnumber=1, warmup_beta=0.016, main_beta=0.07,
     end
 
     ## select the right intervention function
-    if P.scenario == 1     ## treatment 
+    if scenario == 1     ## treatment 
         _func = suppressive_treatment
-    elseif P.scenario == 2 ## vaccine
+    elseif scenario == 2 ## vaccine
         _func = vaccine
     end
-    
+    ## give it an extra year so the counting process smoothes itself out
     for yr = (t2):t3     
         dat.disease[yr, 1:end] .= transmission(dat, yr)        
         dat.treatment[yr, :total_treated] = _func(P.treatment_coverage)
@@ -313,31 +317,31 @@ export _infsusc
 function check_transfer_disease(x, symp_t, asymp_t)
     # symp_t:  number of sexual encounters during symptomatic phase.
     # asymp_t: number of sexual encounters during asymptomatic phases. 
-    # this is split incase beta needs to be multiplied by a reduction factor (i.e. two for loops)
+    # this is split incase since beta is different in each phase, dependent on the scenario 
     # oct 5th: during sexual interactions in symptomatic days, the vaccinated individual has no reduction in beta. 
+    # ... in other words, their beta during symptomatic is same as calibrated beta. 
     # ... seyed has papers justifying this. 
 
     dt = false     
-    beta = P.beta
-    for i = 1:symp_t
-        # if x.vaccinated 
-        #     beta = beta*(1-P.vaccine_efficacy)
-        # end 
-        if x.treated == 1
-            beta = beta*(1-0.80)
-        end
-        if rand() < beta
+    
+    sympbeta = P.beta
+    asympbeta = P.beta
+    if x.treated == 1 
+        sympbeta = sympbeta*(1 - 0.80)
+        asympbeta = asympbeta*(1 - 0.80)
+    end
+    if x.vaccinated 
+        sympbeta = sympbeta
+        asympbeta = asympbeta*(1 - P.vaccine_efficacy)
+    end 
+
+    for i = 1:symp_t        
+        if rand() < sympbeta
             dt = true
         end
     end    
-    for i = 1:asymp_t
-        if x.vaccinated 
-            beta = P.beta*(1-P.vaccine_efficacy)
-        end 
-        if x.treated == 1
-            beta = P.beta*(1-0.80)
-        end
-        if rand() < beta*P.asymp_reduction   
+    for i = 1:asymp_t       
+        if rand() < asympbeta 
             dt = true
         end
     end 
@@ -574,8 +578,7 @@ function vaccine(coverage)
     for x in humans
         if x.health == INF 
             if (rand() < coverage && x.newlyinfected == true) || x.vaccinated == true ## or this person has been vaccinated before
-                x.vaccinated = true
-                x.vaccineexpiry = x.age + P.vac_waningtime 
+                x.vaccinated = true               
                 cnt += 1
             end           
         end
