@@ -1,28 +1,17 @@
 ## this file runs the main scenarios and processes the results. 
+## 
 
-
-## recursive file moving in linux 
-## https://stackoverflow.com/questions/8798153/recursively-move-files-of-certain-type-and-keep-their-directory-structure
-
-## constants that don't need to change a lot once fixed.  
-@everywhere  numofsims = 500
-@everywhere  warmup_beta=0.016
-@everywhere  main_beta=0.07
-@everywhere  warmup_time=50
-@everywhere  eql_time=100 
-@everywhere  run_time=0
-@everywhere  totaltime = warmup_time+eql_time+run_time
-@everywhere  savepathprefix = "/data/hsvvaccine/"
-
-function single(scenario = 1.0, cov = 1.0, efficacy = 0.8, vcpi = 50; showprogress=true) 
+function single(scenario = 1.0, cov = 1.0, efficacy = 0.8, vcpi = 50, 
+    warmup_beta=0.016, main_beta=0.07, warmup_time=50, eql_time=100, run_time=20; showprogress=true) 
     ## this function runs a single scenario of the model with the given parameters + the global parameters
     ## returns: 
     ## `rd` the raw data: this is all the data collected over sims and years. It will have sims x years rows. 
+    ## `ya` the yearly averages: the averages of ALL years taken over all simulations. 
     ## `sa` a vector of 10 DataFrames, each element is the raw data of 10 years post warm-up time for 500 simulations 
-    ##      no averages are taken in `sa`.
-
-    println("single simulation details: beta: $(main_beta), total time = $totaltime")
-    println("parameters: scenario = $scenario, coverage = $cov, efficacy = $efficacy, vcpi = $vcpi")
+    numofsims = 500
+    totaltime = warmup_time+eql_time+run_time
+    println("single simulation details: sims: $numofsims beta: $(main_beta), total time = $totaltime")
+    println("... scenario = $scenario, coverage = $cov, efficacy = $efficacy, vcpi = $vcpi")
     if showprogress
         cd = @showprogress pmap(1:numofsims) do x
             main(x, scenario, cov, efficacy, warmup_beta, main_beta, warmup_time, eql_time, run_time)
@@ -49,7 +38,7 @@ function single(scenario = 1.0, cov = 1.0, efficacy = 0.8, vcpi = 50; showprogre
     end
     
     ## first let's get the average prevalence, this is done later on in the yearly avgs as well, 
-    avgprev =  zeros(Int64, warmup_time+eql_time+run_time, numofsims)   
+    # avgprev =  zeros(Int64, warmup_time+eql_time+run_time, numofsims)   
     # for i = 1:numofsims
     #     avgprev[:, i] = cd[i].prevalence.Total
     # end
@@ -99,8 +88,9 @@ function single(scenario = 1.0, cov = 1.0, efficacy = 0.8, vcpi = 50; showprogre
 
      ## take the raw data and sum up everything at the simulation level PER YEAR
     stime = warmup_time+eql_time+1
+    yrsleft = totaltime - stime
     simavgs = []
-    for i in 0:9
+    for i in 0:yrsleft
         df_temp = rd |> @filter(stime <= _.year <= stime+i) |> @groupby(_.sim) |>
         @map({sim=key(_), 
         sum_ds=sum(_.ds), sum_ss=sum(_.ss), 
@@ -124,10 +114,12 @@ function scenarios()
     ## it calls the single() function for each scenario. 
     ## it calls `process` functions to extract relevant information from ya/sa retruend from single 
     ## and put it in its own data files. 
-
+    savepathprefix = "/data/hsvvaccine/"
     dn = "$savepathprefix/$(Dates.format(Dates.now(), dateformat"mmdd_HHMM"))"
     mkpath("$dn")
     println("saving results to folder: $dn")
+
+    rt = 20 ## number of years post processing to save the q files.
 
     ## run baseline scenario
     baseline = single(1.0, 0.0, 0.0, 0.0; showprogress=false)
@@ -135,9 +127,9 @@ function scenarios()
     CSV.write("$dn/baseline_yearavg_disease.dat", baseline.ya) 
     
     ctr = 1
-    for eff in (0.5)# (0.3, 0.4, 0.5, 0.6, 0.7, 0.8)
-        for vcpi in (100) #(50, 75, 100, 150, 200, 250)
-            for cov in (0.5) #(0.2, 0.4, 0.5, 0.6, 0.8) 
+    for eff in (0.0, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8)
+        for vcpi in (50, 100, 150, 200, 250, 300)
+            for cov in (0.2, 0.4, 0.5, 0.6, 0.8) 
                 println("working scenario number: $ctr/180")
                 ctr += 1                
                 fp = "eff$(Int(eff*100))_vcpi$(vcpi)_cov$(Int(cov*100))"
@@ -154,7 +146,7 @@ function scenarios()
                 idf = process_yearly_averages(t1, v1, baseline)        
                 CSV.write("$dn/$fp/m$(Int(cov*100)).dat", idf)
 
-                for i = 1:10 ## for the 10 years post warm-up simulation sums
+                for i = 1:rt ## for the 10 or 20 years post warm-up simulation sums
                     adf = process_sim_sums(i, t1, v1, baseline)
                     CSV.write("$dn/$fp/q$(Int(cov*100))_yr$i.dat", adf)
                 end
@@ -166,7 +158,7 @@ end
 function process_yearly_averages(t, v, b)
     ## this function takes the results of two "single()" runs and puts together a 
     ## dataframe that combines the two results. 
-    year = [i for i = 1:totaltime]
+    year = [i for i = 1:maximum(b.ya.year)]
     
     cst_b = b.ya.tcost
     cst_t = t.ya.tcost 
@@ -231,3 +223,6 @@ function process_sim_sums(idx, t, v, b)
                              prev_supp = p_t, prev_vacc = p_v, prev_base = p_b)
     return idf
 end
+
+## recursive file moving in linux 
+## https://stackoverflow.com/questions/8798153/recursively-move-files-of-certain-type-and-keep-their-directory-structure
