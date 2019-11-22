@@ -8,7 +8,6 @@ using DataFrames
 using Distributed
 
 import Base: show
-include("./parameters.jl")
 include("./functions.jl")
 #main exports.
 export P, humans, main, modelinfo
@@ -587,7 +586,5 @@ function vaccine(coverage)
     return cnt  ## return a Tuple here with second entry 0 to keep consistent with the "suppressive function"
 end
 export vaccine
-
-
 
 end # module
