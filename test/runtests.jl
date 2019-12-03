@@ -6,21 +6,40 @@ const gridsize = length(thvaccine.humans)
 @testset "DEMO" begin
     ## init_human test
     x = th.Human()
-    th.init_human(x, 1)
+    th.init_human(x, 1)  ## init human with ID
+    @test x.id == 1 && x.health == th.SUSC
+    @test x.age > 0
     @test x.age >= 15 && x.age <= 49
     @test x.partner == 0 && x.married == false
-  
-    @test x.id == 1
-    th.replace_human(x)  ## replace the human and check if certain properties are set
-    @test x.partner == 0
-    @test x.age == 15
-    @test x.id == 1
+    @test x.vaccinated == false && x.treated == false && x.newlyinfected == false
+    
+    ## replace the human and check if certain properties are set
+    oldid =  x.id
+    oldgrp = x.grp
+    oldsex = x.sex  
+    th.replace_human(x)  
+    @test x.id == oldid && x.health == th.SUSC
+    @test x.age > 0 
+    @test x.age == 15 && x.sex == oldsex && x.grp == oldgrp 
+    @test x.partner == 0 && x.married == false
+    @test x.vaccinated == false && x.treated == false && x.newlyinfected == false
+    
+
+    ## check change of ID
+    th.init_human(x, 2)  ## init human with ID
+    @test x.id == 2
 
     ## now test the array of population
     th.init_population()
     @test length(findall(x -> x == undef, humans)) == 0 ## check for proper initialization
-    a1 = [humans[i].age for i = 1:gridsize]
-    @test length(findall(x -> x < 15 || x > 49, a1)) == 0
+    for i = 1:gridsize
+        x = humans[i]
+        @test x.id == i && x.health == th.SUSC
+        @test x.age > 0
+        @test x.age >= 15 && x.age <= 49
+        @test x.partner == 0 && x.married == false
+        @test x.vaccinated == false && x.treated == false && x.newlyinfected == false
+    end
     
     ## test the distribution of demographics
     # m = length(findall(x -> x.sex == MALE, humans))/10000
@@ -30,31 +49,28 @@ const gridsize = length(thvaccine.humans)
     ## testing age() and exit_population() functions
     ## this equires the create_partners()/marry() functions (=> tested in the next section)
     th.init_population()
-    th.create_partners()
     humans[1].age = 15
     th.age()
     @test humans[1].age == 16
-
+    ## internally tests exit_population
     humans[1].age = 49
     th.age()
     @test humans[1].age == 15 ## if the human leaves, a 15 year old is added. 
 
-    ## test exit_population()
+    ## test exit_population() for partners
+    th.init_population()
+    
     # test when partnerd, by not married. human[1] should be new. human[2] should remain
     humans[1].partner = 2
     humans[1].married = false
-    p1copy = deepcopy(humans[1])
     humans[2].partner = 1
     humans[2].partner = false 
-    humans[2].firstyearinfection = false ## check a random property
-    p2copy = deepcopy(humans[2])
+  
     th.exit_population(humans[1]) 
     @test humans[1].age == 15
     @test humans[1].partner == 0
     @test humans[1].married == 0
-    @test humans[1].firstyearinfection == true
-    @test humans[2].age == p2copy.age
-    @test humans[2].firstyearinfection == false
+    
     @test humans[2].partner == 0
     @test humans[2].married == 0
 
@@ -69,16 +85,7 @@ const gridsize = length(thvaccine.humans)
     @test humans[3].married == 0    
     @test humans[4].age == 15
     @test humans[4].partner == 0
-    @test humans[4].married == 0
-    
-    ## check if human 2 remains the same except for partner/married fields
-    # tt = Set(fieldnames(th.Human))
-    # delete!delete!(tt, :partner); delete!(tt, :married)
-    # for t in tt
-    #     @test getfield(humans[2])
-    # end
-
-    
+    @test humans[4].married == 0    
 end
 
 @testset "PART" begin
@@ -94,8 +101,9 @@ end
     @test length(allpartners) > 0   ## check if the function even worked
     @test howmany == length(allpartners)
     @test mod(length(allpartners), 2) == 0 ## test if even number of partners
+    # check if pairings are logically okay
     a1 = findall(a -> humans[humans[a].partner].partner != a, allpartners)
-    @test length(a1) == 0 ## checks if partners have proper id paired.
+    @test length(a1) == 0 
     
     # check if all partners are within their age groups
     a2 = findall(allpartners) do h
@@ -137,12 +145,14 @@ end
     @test cw == 0
     @test length(findall(x -> x.partner == 0, humans)) == 0
 
-    ## check the marriage function  -- reset the population for a "clean slate"
+    ## check the marriage function  -- reset the population 
     th.init_population()
-    th.create_partners()
+    howmany = th.create_partners()
     th.marry()
+
     a3 = findall(x -> x.married == true, humans)
     @test length(a3) > 0
+    @test length(a3) <= howmany ## cant have more married people than partnered people
     
     # check if there is an even number of married pairs
     a4 = findall(x -> x.married == true, humans)
@@ -172,60 +182,22 @@ end
     b = findall(x -> x.married == true, humans)
     @test a == b
 
-    ## TO DO
-    # if a married person leaves the population, they should reset
-   
-    # thvaccine.init_population()
-    # thvaccine.partnerup()
-    # thvaccine.marry()
-    # id = findfirst(x -> x.married == true && x.age == 49, humans) ## in the test, this could return 0 but low chance
-    # partner = humans[id].partner
-    # totalbefore = findall(x -> x.married == true, humans)
-    # if id != nothing
-    #     thvaccine.exit(humans[id])
-    #     @test humans[id].partner == 0
-    #     @test humans[id].married == 0
-    #     @test humans[id].age == 15
-    #     @test humans[partner].partner == 0
-    #     @test humans[partner].married == 0
-    #     @test humans[partner].age == 15       
-    # else 
-    #     println("could not test `exit_population` due to stochastic effects")
-    # end
-    # totalafter = findall(x -> x.married == true, humans)
-    # @test length(totalafter) == length(totalbefore)
-
-    # check the percentages of people getting married and compare with the parameters
-
-
     ## testing  get_partners() function
-    # initialize the population
+    ## check for uniqueness in the returned pairs from get_partners() 
     th.init_population()
     th.create_partners()
-    th.marry()
+    th.marry()    
     
-    ## check for uniqueness in the returned pairs from get_partners() 
     pairs = th.get_partners()
     a = [p.a for p in pairs]
     b = [p.b for p in pairs]
     @test a ∉ b && b ∉ a
-
-    ## test if in the init population, all the firstyearinfection is set to true
-    th.init_population()
-    clear = true
-    for i = 1:length(humans)
-        if humans[i].firstyearinfection == false
-            clear = false
-        end
-    end
-    @test clear == true
-
 end
 
 @testset "IDIS" begin
     ## this tests the initial disease distribution. 
     ## Basically the function init_disease
-    th._resetdemo() ## reset the demographics
+    th._resetdemo() ## reset the demographics (init_pop, partners, marry)
  
     ## we havn't run the init_disease function yet. 
     ## this test is order dependent
@@ -249,7 +221,7 @@ end
     end
     @test length(r) == 0
 
-    # test init_disease() probabilities. 
+    ## test init_disease() probabilities. 
     ## test whether the initialized diseased is within the confidence limits of the data paper.
     ## TO DO
 
@@ -270,91 +242,97 @@ end
     @test _c + infinf*2 == prevcnt
 end
 
-@testset "MISC" begin
-    ## test the age groups.. should be from 1-4
-    a = [th.get_age_group(humans[i].age) for i = 1:gridsize]
-    @test length(findall(x -> x ∉ (1, 2, 3, 4), a)) == 0
-
-    # ## test model parameters -- distribution of ethnicities
-    # c = [P.eth_white, P.eth_black, P.eth_asian, P.eth_hispanic]
-    # @test sum(c) == 1
-
-    # test the default parameters
-end
-
 @testset "SHED" begin
     th._reset() ## reset the model with infected people
-    ## no treatment yet (quick test this)
-    sick = findall(x -> x.health == INF, humans)
-    treated = findall(x -> x.treated > 0, humans)
-
-end
-
-@testset "TREAT" begin
-    ## test the treatment function
-    ## test that with and without treatment what the average number of symptomatic days there are. 
-    _reset() ## reset the population with infected.
-    cnt = length(findall(x -> x.health == th.INF, humans))
- 
-    ## test with 100% episodic treatment. this is usually at the start of warmup period and for calibration.
-    treatment(2, 1.0) ## give everyone episodic treatment
+    ## no one is vaccinated or treated ## check this just incase
     for x in humans
-        if x.health == th.INF
-            @test x.treated == 2
-        end
-    end
- 
-    ## test with 0% episodic treatment. this is usually at the start of warmup period and for calibration.
-    _reset() ## reset the population with infected.
-    cnt = length(findall(x -> x.health == th.INF, humans))
-    treatment(2, 0.0)
-    for x in humans
-        if x.health == th.INF
-            @test x.treated == 0
-        end 
-    end
-
-    ## test whether shedding is reduced as expected. 
-    _reset() ## reset the population with infected. 
-    nta = Array{Int64, 1}()
-    nts = Array{Int64, 1}()
-    for x in humans
-        if x.health == th.INF
-            a, s = th._get_shedding_weeks(x) ## get number of weeks shedding asymptomatic/symptomatic
-            push!(nta, a)
-            push!(nts, s)
-        end 
-    end
-
-    _reset() ## reset the population with infected. 
-    treatment(2, 1.0)  #give everyone episodic treatment
-    ta = Array{Int64, 1}()
-    ts = Array{Int64, 1}()
-    for x in humans
-        if x.health == th.INF
-            a, s = th._get_shedding_weeks(x) ## get number of weeks shedding asymptomatic/symptomatic
-            push!(ta, a)
-            push!(ts, s)
-        end 
+        @test x.vaccinated == false && x.treated == false && x.newlyinfected == false
     end
     
-    ## test how different nts (no treatment symptomatic periods) and ts (treatment symptomatic periods) differ. 
-
-
-    _reset() ## reset the population with infected. 
-    treatment(1, 1.0)  #give everyone suppressive treatment
-    ta = Array{Int64, 1}()
-    ts = Array{Int64, 1}()
-    for x in humans
-        if x.health == th.INF
-            a, s = th._get_shedding_weeks(x) ## get number of weeks shedding asymptomatic/symptomatic
-            push!(ta, a)
-            push!(ts, s)
-        end 
+    ## this testset only tests _get_shedding_weeks() and builds a distribution 
+    ## can change the size from `gridsize` to anything else if needed a higher resolution distribution
+    ds = zeros(Float64, gridsize)
+    ss = zeros(Float64, gridsize)
+    da = zeros(Float64, gridsize)
+    sa = zeros(Float64, gridsize)
+    for i = 1:gridsize        
+        ds[i], ss[i], da[i], sa[i]  = th._get_shedding_weeks(humans[1])
     end
+    println("mean ds: $(mean(ds)), ss: $(mean(ss)), da: $(mean(da)), sa: $(mean(sa))")
 
+    ## TO DO: Test after person is vaccinated/treated that symptomatic days/shedding days are reduced
+    humans[1].treated = 1
+    ds = zeros(Float64, gridsize)
+    ss = zeros(Float64, gridsize)
+    da = zeros(Float64, gridsize)
+    sa = zeros(Float64, gridsize)
+    for i = 1:gridsize        
+        ds[i], ss[i], da[i], sa[i]  = th._get_shedding_weeks(humans[1])
+    end
+    println("after treatment: mean ds: $(mean(ds)), ss: $(mean(ss)), da: $(mean(da)), sa: $(mean(sa))")
 end
 
-@testset "VACC" begin
-    ## test the vaccine function
-end
+# @testset "TREAT" begin
+#     ## test the treatment function
+#     ## test that with and without treatment what the average number of symptomatic days there are. 
+#     _reset() ## reset the population with infected.
+#     cnt = length(findall(x -> x.health == th.INF, humans))
+ 
+#     ## test with 100% episodic treatment. this is usually at the start of warmup period and for calibration.
+#     treatment(2, 1.0) ## give everyone episodic treatment
+#     for x in humans
+#         if x.health == th.INF
+#             @test x.treated == 2
+#         end
+#     end
+ 
+#     ## test with 0% episodic treatment. this is usually at the start of warmup period and for calibration.
+#     _reset() ## reset the population with infected.
+#     cnt = length(findall(x -> x.health == th.INF, humans))
+#     treatment(2, 0.0)
+#     for x in humans
+#         if x.health == th.INF
+#             @test x.treated == 0
+#         end 
+#     end
+
+#     ## test whether shedding is reduced as expected. 
+#     _reset() ## reset the population with infected. 
+#     nta = Array{Int64, 1}()
+#     nts = Array{Int64, 1}()
+#     for x in humans
+#         if x.health == th.INF
+#             a, s = th._get_shedding_weeks(x) ## get number of weeks shedding asymptomatic/symptomatic
+#             push!(nta, a)
+#             push!(nts, s)
+#         end 
+#     end
+
+#     _reset() ## reset the population with infected. 
+#     treatment(2, 1.0)  #give everyone episodic treatment
+#     ta = Array{Int64, 1}()
+#     ts = Array{Int64, 1}()
+#     for x in humans
+#         if x.health == th.INF
+#             a, s = th._get_shedding_weeks(x) ## get number of weeks shedding asymptomatic/symptomatic
+#             push!(ta, a)
+#             push!(ts, s)
+#         end 
+#     end
+    
+#     ## test how different nts (no treatment symptomatic periods) and ts (treatment symptomatic periods) differ. 
+
+
+#     _reset() ## reset the population with infected. 
+#     treatment(1, 1.0)  #give everyone suppressive treatment
+#     ta = Array{Int64, 1}()
+#     ts = Array{Int64, 1}()
+#     for x in humans
+#         if x.health == th.INF
+#             a, s = th._get_shedding_weeks(x) ## get number of weeks shedding asymptomatic/symptomatic
+#             push!(ta, a)
+#             push!(ts, s)
+#         end 
+#     end
+
+# end

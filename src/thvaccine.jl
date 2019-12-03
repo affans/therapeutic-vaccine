@@ -37,7 +37,7 @@ function main(simnumber=1, scenario = 1.0, cov=0.0, efficacy=0.0, warmup_beta=0.
     marry()
     init_disease()   
 
-    ## create the right end points for the time llops
+    ## create the right end points for the time loops
     t1 = warmup_time
     t2 = warmup_time + eql_time
     t3 = warmup_time + eql_time + run_time
@@ -180,6 +180,7 @@ export Partner
 
 
 function reset_all_partners()
+    ## resets all the partners except married couples
     cnt = 0 
     for x in humans
         if x.partner > 0 && x.married == false
@@ -302,7 +303,6 @@ function _infsusc(sick::Human, susc::Human)
     if dt 
         ## disease is passed onto the susceptible person
         susc.health = INF 
-        susc.firstyearinfection = true
         susc.newlyinfected = true
         suscr = _mynaturalhistory(susc) ## run natural history of disease.
         return (dt, sickr, suscr) 
@@ -325,10 +325,13 @@ function check_transfer_disease(x, symp_t, asymp_t)
     
     sympbeta = P.beta
     asympbeta = P.beta
+    ## if under suppressive treatment
     if x.treated == 1 
         sympbeta = sympbeta*(1 - 0.80)
         asympbeta = asympbeta*(1 - 0.80)
     end
+
+    ## if under vaccinated scenario
     if x.vaccinated 
         sympbeta = sympbeta
         asympbeta = asympbeta*(1 - P.vaccine_efficacy)
@@ -349,6 +352,7 @@ end
 export check_transfer_disease
 
 function unpack_naturalhistory(dt, rtuple)
+    ## this function not currently being used
     ## this is a helper function that unpacks the NaturalHistory() object
     ## and creates a tuple so it can be pushed to a data frame. 
     for i in fieldnames(NaturalHistory)
@@ -368,10 +372,11 @@ function transmission(dataobj::SimData, year = 1)
     ctr_dis = 0   ## total number of the SUSC/INF pairs that got sick. 
     ctr_inf = 0   ## total number of INF/INF pairs.
 
+    ## "total" counters for everyone. 
     ds = 0  ## total symptomatic days
     ss = 0  ## total shedding days
-    da = 0
-    sa = 0
+    da = 0  ## total asympotmatic days
+    sa = 0  ## total shedding days
 
     ds_notreat = 0 
     ss_notreat = 0
@@ -387,10 +392,12 @@ function transmission(dataobj::SimData, year = 1)
             dt, p1nathis, p2nathis =  _infinf(p1, p2) #returns a Tuple{Bool, NaturalHistory, NaturalHistory}
             
             ## unpack the results (by appending the fields to an already existing tuple)
-            p1t = unpack_naturalhistory(p1nathis, (year, 1, Int(p1.sex), 0))
-            p2t = unpack_naturalhistory(p2nathis, (year, 1, Int(p2.sex), 0))
-            #push!(dataobj.episodes, p1t)
-            #push!(dataobj.episodes, p2t)
+            # p1t = unpack_naturalhistory(p1nathis, (year, 1, Int(p1.sex), 0))
+            # p2t = unpack_naturalhistory(p2nathis, (year, 1, Int(p2.sex), 0))
+            # push!(dataobj.episodes, p1t)
+            # push!(dataobj.episodes, p2t)
+
+            ## add to the statistic variables
             ds += (p1nathis.duration_symp + p2nathis.duration_symp)
             ss += (p1nathis.shedding_symp + p2nathis.shedding_symp)
             da += (p1nathis.duration_asymp + p2nathis.duration_asymp)
@@ -423,14 +430,15 @@ function transmission(dataobj::SimData, year = 1)
             if dt ## disease has transferred
                 ctr_dis += 1
             end
-            p1t = unpack_naturalhistory(p1nathis, (year, 2, Int(p1.sex), dt))
-            p2t = unpack_naturalhistory(p2nathis, (year, 2, Int(p2.sex), 0))
+            # p1t = unpack_naturalhistory(p1nathis, (year, 2, Int(p1.sex), dt))
+            # p2t = unpack_naturalhistory(p2nathis, (year, 2, Int(p2.sex), 0))
+            # push!(dataobj.episodes, p1t)
+            # push!(dataobj.episodes, p2t)
             ds += (p1nathis.duration_symp + p2nathis.duration_symp)
             ss += (p1nathis.shedding_symp + p2nathis.shedding_symp)
             da += (p1nathis.duration_asymp + p2nathis.duration_asymp)
             sa += (p1nathis.shedding_asymp + p2nathis.shedding_asymp)
-            #push!(dataobj.episodes, p1t)
-            #push!(dataobj.episodes, p2t)
+           
 
             if p1.treated == 0
                 ds_notreat += p1nathis.duration_symp
@@ -450,7 +458,7 @@ export transmission
 function _get_shedding_weeks(x::Human) 
     # quick calculation to see how many weeks one will shed in asympotmatic and symptmatic infections during a year. 
     # this is based of the JAMA paper, where about 90% of the swabs/days were subclinical. 
-    # i then used the assumption that this will be from 85-95%. 
+    # I used the assumption that this will be from 85-95%. 
     # the amount of shedding while asymptomatic is about 12% of those days. Can we put a distribution around this? 
 
     # to do: still have to write unit tests for this
@@ -476,8 +484,9 @@ function _get_shedding_weeks(x::Human)
         ## save the original number of symptomatic days
         r = days_symptomatic 
 
-        ## there is also reduction in symptomatic days (which is not used in the calculation for reduction of shedding)
-        ## take the original sampled days of symptomatic and reduce by 50%, recalculate asymptomatic days as well
+        ## there is reduction in symptomatic days (which is not used in the calculation for reduction of shedding)
+        ## take the original sampled days of symptomatic and reduce by 50%. 
+        ## recalculate asymptomatic days as well
         days_symptomatic = r * (1 - 0.50)
         days_asymptomatic = 365 - days_symptomatic
 
@@ -504,9 +513,6 @@ function _get_shedding_weeks(x::Human)
         ## shedding from asymptomatic is reduced now by 80% as well since this is suppressive
         shed_symptomatic = r * pct_shed_symptomatic #* (1 - 0.80)
         shed_asymptomatic = days_asymptomatic * pct_shed_asymptomatic #* (1 - 0.80)
-
-        #println("treated (supp) days symptomatic (shedding): $days_symptomatic ($shed_symptomatic)")
-        #println("treated (supp) days asymptomatic (shedding): $days_asymptomatic ($shed_asymptomatic)\n")
     end
 
     # 50% reduction in symptomatic days if individual is vaccinated.
@@ -538,6 +544,7 @@ function _mynaturalhistory(x::Human)
     #println("weeks symptomatic (shedding):  $weeks_symptomatic")
     #println("weeks asymptomatic (shedding): $weeks_asymptomatic")
     
+    ## calculate the number of sexual encounters during shedding weeks
     sex_encounters_asymptomatic = [calculatesexfrequency(x.age, x.sex) for i=1:wa]
     sex_encounters_symptomatic = [calculatesexfrequency(x.age, x.sex) for i=1:ws]
     
@@ -552,7 +559,6 @@ export _mynaturalhistory
 function suppressive_treatment(coverage)    
     ## if an individual gets sick during the year, their treatment really starts right away
     ## but in our model, it would get recorded in the following year.  
-       
     cnt = 0
     days = 0 
     for x in humans
@@ -581,9 +587,8 @@ function vaccine(coverage)
                 cnt += 1
             end           
         end
-
     end
-    return cnt  ## return a Tuple here with second entry 0 to keep consistent with the "suppressive function"
+    return cnt  
 end
 export vaccine
 

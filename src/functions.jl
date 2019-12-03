@@ -29,7 +29,6 @@ mutable struct Human
     grp::GRP
     partner::Int64      ## partnership and pairings
     married::Bool
-    firstyearinfection::Bool # infection first year
     vaccinated::Bool  # would get vaccinated after first episode  
     treated::Int64 # 0 = no treatment, 1 = suppressive treatment, 2 = episodic treatment
     newlyinfected::Bool ## needed for coverage scenarios.
@@ -112,7 +111,6 @@ function init_human(h::Human)
     # partners
     h.partner = 0
     h.married = false
-    h.firstyearinfection = true
     h.vaccinated = false
     h.treated = 0
     h.newlyinfected = false
