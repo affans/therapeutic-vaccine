@@ -3,15 +3,15 @@
 
 function single(scenario = 1.0, cov = 1.0, efficacy = 0.8, vcpi = 50, 
     warmup_beta=0.016, main_beta=0.07, warmup_time=50, eql_time=100, run_time=20; showprogress=true) 
-    ## this function runs a single scenario of the model with the given parameters + the global parameters
     ## returns: 
     ## `rd` the raw data: this is all the data collected over sims and years. It will have sims x years rows. 
     ## `ya` the yearly averages: the averages of ALL years taken over all simulations. 
     ## `sa` a vector of 10 DataFrames, each element is the raw data of 10 years post warm-up time for 500 simulations 
     numofsims = 500
     totaltime = warmup_time+eql_time+run_time
-    println("single simulation details: sims: $numofsims beta: $(main_beta), total time = $totaltime")
-    println("... scenario = $scenario, coverage = $cov, efficacy = $efficacy, vcpi = $vcpi")
+    println("single simulation details: scenario = $scenario, sims: $numofsims, coverage = $cov, efficacy = $efficacy, vcpi = $vcpi")
+    println("... warmup_beta: $(warmup_beta), main_beta: $(main_beta), total time = $totaltime")
+
     if showprogress
         cd = @showprogress pmap(1:numofsims) do x
             main(x, scenario, cov, efficacy, warmup_beta, main_beta, warmup_time, eql_time, run_time)
@@ -22,7 +22,7 @@ function single(scenario = 1.0, cov = 1.0, efficacy = 0.8, vcpi = 50,
         end 
     end
 
-    ## add some extra columns for processing]
+    ## add some extra columns for processing, ideally this should be done at the simulation level but it dosn't matter
     for i = 1:numofsims
         dts = cd[i]    
         insertcols!(dts.prevalence, 1, :sim => i)    
@@ -55,7 +55,7 @@ function single(scenario = 1.0, cov = 1.0, efficacy = 0.8, vcpi = 50,
     a = vcat([cd[i].agedist for i = 1:length(cd)]...)
     t = vcat([cd[i].treatment for i = 1:length(cd)]...)
     # add the episodic cost. this is the number of episodic days from the non treated individuals. 
-    # this is because agents on suppressive treatment need not get episodic treatment. 
+    # this is because individuals on suppressive treatment need not get episodic treatment. 
     sk = Gamma(1.94, 1.42)
     t[!, :ecost] .= d |> @map(_.ds_nt*rand(sk)) |> collect
     # treatment cost 
