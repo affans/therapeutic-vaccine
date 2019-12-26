@@ -391,11 +391,6 @@ function transmission(dataobj::SimData, year = 1)
             ctr_inf += 1
             dt, p1nathis, p2nathis =  _infinf(p1, p2) #returns a Tuple{Bool, NaturalHistory, NaturalHistory}
             
-            ## unpack the results (by appending the fields to an already existing tuple)
-            # p1t = unpack_naturalhistory(p1nathis, (year, 1, Int(p1.sex), 0))
-            # p2t = unpack_naturalhistory(p2nathis, (year, 1, Int(p2.sex), 0))
-            # push!(dataobj.episodes, p1t)
-            # push!(dataobj.episodes, p2t)
 
             ## add to the statistic variables
             ds += (p1nathis.duration_symp + p2nathis.duration_symp)
@@ -430,10 +425,7 @@ function transmission(dataobj::SimData, year = 1)
             if dt ## disease has transferred
                 ctr_dis += 1
             end
-            # p1t = unpack_naturalhistory(p1nathis, (year, 2, Int(p1.sex), dt))
-            # p2t = unpack_naturalhistory(p2nathis, (year, 2, Int(p2.sex), 0))
-            # push!(dataobj.episodes, p1t)
-            # push!(dataobj.episodes, p2t)
+
             ds += (p1nathis.duration_symp + p2nathis.duration_symp)
             ss += (p1nathis.shedding_symp + p2nathis.shedding_symp)
             da += (p1nathis.duration_asymp + p2nathis.duration_asymp)

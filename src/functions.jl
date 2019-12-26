@@ -51,7 +51,6 @@ struct SimData
     prevalence::DataFrame
     agedist::DataFrame
     partners::DataFrame
-    episodes::DataFrame # don't use this as of now  
     disease::DataFrame  
     treatment::DataFrame
  
@@ -66,8 +65,6 @@ struct SimData
         partners = DataFrame([Int64 for i = 1:3], [:partners, :partners_sick, :ctr_xor], P.sim_time)
         partners .= 0
         
-        episodes = DataFrame([Int64 for i = 1:12], [:year, :type, :sex, :dt, fieldnames(NaturalHistory)...])
-        
         agedist = DataFrame([Int64 for i = 1:7], [:gr1, :gr2, :gr3, :gr4, :left, :left_ct, :left_treated], P.sim_time)
         agedist .= 0
 
@@ -76,7 +73,7 @@ struct SimData
 
         disease = DataFrame([Float64 for _ = 1:9], [:ctr_inf, :ctr_xor, :ctr_dis, :ds, :ss, :ds_nt, :ss_nt, :da, :sa], P.sim_time)
         disease .= 0
-        new(prev, agedist, partners, episodes, disease, treatment)
+        new(prev, agedist, partners, disease, treatment)
     end
 end
 
