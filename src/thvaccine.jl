@@ -16,20 +16,24 @@ const gridsize = 10000
 const P = ModelParameters()
 const humans = Array{Human}(undef, gridsize)
 
-function main(simnumber=1, scenario = 1.0, cov=0.0, efficacy=0.0, warmup_beta=0.016, main_beta=0.07, 
+function main(simnumber=1, scenario = :none, cov=0.0, efficacy=0.0, warmup_beta=0.016, main_beta=0.07, 
     warmup_time=50, eql_time=100, run_time=10) 
     Random.seed!(simnumber) 
     #println(simnumber)
+
     ## error checks 
     warmup_beta + main_beta == 0.0 && error("β is set to zero. No disease will happen")
-    
-    P.sim_time = warmup_time + eql_time + run_time
-    P.sim_time == 0 && error("simulation time is set to zero")
+    scenario ∉ (:none, :suppressive, :vaccine, :both) && error("not a valid scenario")
+    (warmup_time + eql_time + run_time) == 0 && error("simulation time is set to zero")
 
+
+    ## set the simulation properties
+    P.sim_time = (warmup_time + eql_time + run_time)
     P.treatment_coverage = cov
     P.vaccine_efficacy = efficacy
 
-    dat = SimData(P)  # initialize data collection
+    # initialize data collection
+    dat = SimData(P)  
 
     ## setup initial distribution. 
     init_population()
@@ -42,7 +46,6 @@ function main(simnumber=1, scenario = 1.0, cov=0.0, efficacy=0.0, warmup_beta=0.
     t2 = warmup_time + eql_time
     t3 = warmup_time + eql_time + run_time
 
-    #println("t1: $t1, t2: $t2, t3: $t3")
     P.beta = warmup_beta
     for yr = 1:(t1-1)
         dat.disease[yr, 1:end] .= transmission(dat, yr)   
@@ -59,16 +62,10 @@ function main(simnumber=1, scenario = 1.0, cov=0.0, efficacy=0.0, warmup_beta=0.
         create_partners()
     end
 
-    ## select the right intervention function
-    if scenario == 1     ## treatment 
-        _func = suppressive_treatment
-    elseif scenario == 2 ## vaccine
-        _func = vaccine
-    end
     ## give it an extra year so the counting process smoothes itself out
     for yr = (t2):t3     
         dat.disease[yr, 1:end] .= transmission(dat, yr)        
-        dat.treatment[yr, :total_treated] = _func(P.treatment_coverage)
+        dat.treatment[yr, 1:end] .= give_treatment(scenario, P.treatment_coverage)
         record_prev(dat, yr) ## record data before system changes at end of year  
         dat.agedist[yr, [:left, :left_ct, :left_treated]] .= age()
         create_partners()
@@ -125,13 +122,13 @@ function age()
     ct_treated = 0  ## number of people leaving that were vaccinated/treated
     for h in humans 
         h.age += 1 
-        h.newlyinfected = false
+        h.newlyinfected = false  ## it's the "next year", not newly infected
         if h.age > 49 
             ct += 1
             if h.health == INF 
                 ct_inf += 1
             end
-            if h.treated > 0 || h.vaccinated == true
+            if h.treated || h.vaccinated
                 ct_treated += 1
             end
             exit_population(h)
@@ -326,7 +323,7 @@ function check_transfer_disease(x, symp_t, asymp_t)
     sympbeta = P.beta
     asympbeta = P.beta
     ## if under suppressive treatment
-    if x.treated == 1 
+    if x.treated 
         sympbeta = sympbeta*(1 - 0.80)
         asympbeta = asympbeta*(1 - 0.80)
     end
@@ -390,24 +387,6 @@ function transmission(dataobj::SimData, year = 1)
         if p1health == INF && p2health == INF 
             ctr_inf += 1
             dt, p1nathis, p2nathis =  _infinf(p1, p2) #returns a Tuple{Bool, NaturalHistory, NaturalHistory}
-            
-
-            ## add to the statistic variables
-            ds += (p1nathis.duration_symp + p2nathis.duration_symp)
-            ss += (p1nathis.shedding_symp + p2nathis.shedding_symp)
-            da += (p1nathis.duration_asymp + p2nathis.duration_asymp)
-            sa += (p1nathis.shedding_asymp + p2nathis.shedding_asymp)
-
-            if p1.treated == 0
-                ds_notreat += p1nathis.duration_symp
-                ss_notreat += p1nathis.shedding_symp
-            end
-
-            if p2.treated == 0
-                ds_notreat += p2nathis.duration_symp
-                ss_notreat += p2nathis.shedding_symp
-            end
-
         end     
 
         if xor(p1health == INF, p2health == INF)
@@ -424,23 +403,26 @@ function transmission(dataobj::SimData, year = 1)
             dt, p1nathis, p2nathis = _infsusc(sick, susc)
             if dt ## disease has transferred
                 ctr_dis += 1
-            end
+            end            
+        end
 
-            ds += (p1nathis.duration_symp + p2nathis.duration_symp)
-            ss += (p1nathis.shedding_symp + p2nathis.shedding_symp)
-            da += (p1nathis.duration_asymp + p2nathis.duration_asymp)
-            sa += (p1nathis.shedding_asymp + p2nathis.shedding_asymp)
-           
+        #p1nathis and p2nathis should have valid instances at this point. 
+        ds += (p1nathis.duration_symp + p2nathis.duration_symp)
+        ss += (p1nathis.shedding_symp + p2nathis.shedding_symp)
+        da += (p1nathis.duration_asymp + p2nathis.duration_asymp)
+        sa += (p1nathis.shedding_asymp + p2nathis.shedding_asymp)
+       
+        # need the total number of ds/ss for people not under any treatment
+        # we need this to calculate the episodic treatment costs
+        # note: we don't care if under vaccine treatment since they still have episodic cost
+        if !p1.treated
+            ds_notreat += p1nathis.duration_symp
+            ss_notreat += p1nathis.shedding_symp
+        end
 
-            if p1.treated == 0
-                ds_notreat += p1nathis.duration_symp
-                ss_notreat += p1nathis.shedding_symp
-            end
-
-            if p2.treated == 0
-                ds_notreat += p2nathis.duration_symp
-                ss_notreat += p2nathis.shedding_symp
-            end
+        if !p2.treated
+            ds_notreat += p2nathis.duration_symp
+            ss_notreat += p2nathis.shedding_symp
         end
     end
     return (ctr_inf, ctr_xor, ctr_dis, ds, ss, ds_notreat, ss_notreat, da, sa)
@@ -472,7 +454,7 @@ function _get_shedding_weeks(x::Human)
     #println("sampled days asymptomatic (shedding): $days_asymptomatic ($shed_asymptomatic) \n")
 
     ## hacky way to make sure everyone is under episodic treatment... 
-    if x.treated == 2 || true  
+    if true  
         ## save the original number of symptomatic days
         r = days_symptomatic 
 
@@ -486,13 +468,10 @@ function _get_shedding_weeks(x::Human)
         ## shedding from asymptomatic is not reduced because this is episodic treatment (but have to recalculate because there are more asympotmatic days)
         shed_symptomatic = r * pct_shed_symptomatic #* (1 - 0.50)
         shed_asymptomatic = days_asymptomatic * pct_shed_asymptomatic
-
-        #println("treated days (epis) symptomatic (shedding): $days_symptomatic ($shed_symptomatic)")
-        #println("treated days (epis) asymptomatic (shedding): $days_asymptomatic ($shed_asymptomatic) \n")
     end
 
     # suppressive treatment.
-    if x.treated == 1 
+    if x.treated
         ## save the original number of symptomatic days
         r = days_symptomatic 
 
@@ -548,15 +527,43 @@ function _mynaturalhistory(x::Human)
 end
 export _mynaturalhistory
 
+function give_treatment(scenario, coverage)
+    ## if an individual gets sick during the year, their treatment really starts right away
+    ## but in our model, it would get recorded in the following year
+    ## this is because function runs at the end of the for loop. 
+    tot_supp = 0 
+    tot_vacc = 0 
+
+    if scenario == :suppressive
+        tot_supp = suppressive_treatment(coverage)
+    end
+
+    if scenario == :vaccine
+        tot_vacc = vaccine(coverage)
+    end
+
+    if scenario == :both
+        tot_supp, tot_vacc = both_treatments(coverage)
+    end
+
+    return tot_supp, tot_vacc
+end    
+export give_treatment
+
 function suppressive_treatment(coverage)    
     ## if an individual gets sick during the year, their treatment really starts right away
-    ## but in our model, it would get recorded in the following year.  
-    cnt = 0
-    days = 0 
+    ## but in our model, it would get recorded in the following year
+    ## this is because function runs at the end of the for loop. 
+
+    # go through all humans, if infected check whether it's a new infection 
+    # or whether the person has been treated before,
+    # mark them under suppressive treatment
+
+    cnt = 0    # count total number of treated
     for x in humans
         if x.health == INF
-            if (rand() < coverage && x.newlyinfected == true) || x.treated == 1
-                x.treated = 1
+            if (rand() < coverage && x.newlyinfected == true) || x.treated
+                x.treated = true
                 cnt += 1
             end
         end
@@ -566,10 +573,9 @@ end
 export suppressive_treatment
 
 function vaccine(coverage)
-    # this function is run at the end of year 
-    # it goes through every single human, and if they are infected, 
-    # they get a vaccine dose based on coverage. 
-    # they do not get a dose everyyear though, only when the vaccine has waned. 
+    # go through all humans, if infected check whether it's a new infection 
+    # or whether the person has been vaccinated before,
+    # mark them under vaccinated treatment
 
     cnt = 0 ## count of new vaccinated in the year.
     for x in humans
@@ -580,8 +586,47 @@ function vaccine(coverage)
             end           
         end
     end
-    return cnt  
+    return cnt   
 end
 export vaccine
+
+function both_treatments(coverage)
+    vcnt = 0 
+    scnt = 0 
+    for x in humans
+        if x.health == INF 
+
+            ## if infected person is already under a regime, keep them on same regime
+            if x.vaccinated 
+                vcnt += 1 
+            end
+
+            if x.treated
+                scnt += 1
+            end
+
+            ## do a sanity check. person should not be treated and vaccinated at the same time
+            if x.vaccinated && x.treated
+                error("infected person is both treated and vaccinated, can not happen")
+            end
+
+            # if infected person is not vaccinated/treated, check for treatment
+            if !(x.vaccinated || x.treated)
+                if (rand() < coverage && x.newlyinfected == true) 
+                    if rand() < 0.5 
+                        x.vaccinated = true 
+                        vcnt += 1 
+                    else 
+                        x.treated = true
+                        scnt += 1
+                    end
+                end 
+            end                 
+        end
+    end
+
+    return scnt, vcnt
+end
+
 
 end # module

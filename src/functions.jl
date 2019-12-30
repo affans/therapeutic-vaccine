@@ -30,7 +30,7 @@ mutable struct Human
     partner::Int64      ## partnership and pairings
     married::Bool
     vaccinated::Bool  # would get vaccinated after first episode  
-    treated::Int64 # 0 = no treatment, 1 = suppressive treatment, 2 = episodic treatment
+    treated::Bool    # 0 = episodic, 1 = suppressive
     newlyinfected::Bool ## needed for coverage scenarios.
     Human() = new()
 end
@@ -68,7 +68,7 @@ struct SimData
         agedist = DataFrame([Int64 for i = 1:7], [:gr1, :gr2, :gr3, :gr4, :left, :left_ct, :left_treated], P.sim_time)
         agedist .= 0
 
-        treatment = DataFrame([Int64], [:total_treated], P.sim_time)
+        treatment = DataFrame([Int64, Int64], [:total_treated, :total_vaccinated], P.sim_time)
         treatment .= 0
 
         disease = DataFrame([Float64 for _ = 1:9], [:ctr_inf, :ctr_xor, :ctr_dis, :ds, :ss, :ds_nt, :ss_nt, :da, :sa], P.sim_time)
@@ -109,7 +109,7 @@ function init_human(h::Human)
     h.partner = 0
     h.married = false
     h.vaccinated = false
-    h.treated = 0
+    h.treated = false
     h.newlyinfected = false
     return h
 end

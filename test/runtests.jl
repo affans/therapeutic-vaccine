@@ -261,7 +261,7 @@ end
     println("mean ds: $(mean(ds)), ss: $(mean(ss)), da: $(mean(da)), sa: $(mean(sa))")
 
     ## TO DO: Test after person is vaccinated/treated that symptomatic days/shedding days are reduced
-    humans[1].treated = 1
+    humans[1].treated = true
     ds = zeros(Float64, gridsize)
     ss = zeros(Float64, gridsize)
     da = zeros(Float64, gridsize)

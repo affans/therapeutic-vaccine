@@ -1,7 +1,7 @@
 ## this file runs the main scenarios and processes the results. 
 ## 
 
-function single(scenario = 1.0, cov = 1.0, efficacy = 0.8, vcpi = 50, 
+function single(scenario = :none, cov = 1.0, efficacy = 0.8, vcpi = 50, 
     warmup_beta=0.016, main_beta=0.07, warmup_time=50, eql_time=100, run_time=20; showprogress=true) 
     ## returns: 
     ## `rd` the raw data: this is all the data collected over sims and years. It will have sims x years rows. 
@@ -59,12 +59,9 @@ function single(scenario = 1.0, cov = 1.0, efficacy = 0.8, vcpi = 50,
     sk = Gamma(1.94, 1.42)
     t[!, :ecost] .= d |> @map(_.ds_nt*rand(sk)) |> collect
     # treatment cost 
-    if scenario == 1  ## treatment scenario
-        t[!, :tcost] .= t |> @map(_.total_treated*365*rand(sk))
-    else ## vaccine scenario
-        t[!, :tcost] .= t |> @map(_.total_treated*vcpi)
-    end
-    t[!, :totalcost] .= t.ecost + t.tcost
+    t[!, :tcost] .= t |> @map(_.total_treated * 365 * rand(sk))
+    t[!, :vcost] .= t |> @map(_.total_vaccinated * vcpi)
+    t[!, :totalcost] .= t.ecost + t.tcost + t.vcost
 
     ## merge all the data frames together
     rd = join(d, p, on=[:year, :sim])
@@ -83,7 +80,8 @@ function single(scenario = 1.0, cov = 1.0, efficacy = 0.8, vcpi = 50,
                 avg_left_system=mean(_.left), 
                 avg_left_system_infected=mean(_.left_ct), 
                 avg_left_system_treated=mean(_.left_treated),
-                avg_treated=mean(_.total_treated), 
+                avg_treated=mean(_.total_treated),
+                avg_vaccinated=mean(_.total_vaccinated),  
                 tcost=mean(_.totalcost) }) |> DataFrame
 
      ## take the raw data and sum up everything at the simulation level PER YEAR
@@ -102,6 +100,7 @@ function single(scenario = 1.0, cov = 1.0, efficacy = 0.8, vcpi = 50,
         sum_left_infected=sum(_.left_ct), 
         sum_left_treated=sum(_.left_treated),
         sum_treated=sum(_.total_treated), 
+        sum_vaccinated=sum(_.total_vaccinated),
         sum_cost = sum(_.totalcost)}) |> DataFrame
         push!(simavgs, df_temp)
     end 
@@ -114,7 +113,7 @@ function scenarios()
     ## it calls the single() function for each scenario. 
     ## it calls `process` functions to extract relevant information from ya/sa retruend from single 
     ## and put it in its own data files. 
-    savepathprefix = "/data/hsvvaccine/"
+    savepathprefix = "/data/hsvvaccine"
     dn = "$savepathprefix/$(Dates.format(Dates.now(), dateformat"mmdd_HHMM"))"
     mkpath("$dn")
     println("saving results to folder: $dn")
@@ -122,7 +121,7 @@ function scenarios()
     rt = 20 ## number of years post processing to save the q files.
 
     ## run baseline scenario
-    baseline = single(1.0, 0.0, 0.0, 0.0; showprogress=false)
+    baseline = single(:none, 0.0, 0.0, 0.0; showprogress=false)
     CSV.write("$dn/baseline_raw_disease.dat", baseline.rd)     
     CSV.write("$dn/baseline_yearavg_disease.dat", baseline.ya) 
     
@@ -134,20 +133,23 @@ function scenarios()
                 ctr += 1                
                 fp = "eff$(Int(eff*100))_vcpi$(vcpi)_cov$(Int(cov*100))"
                 mkpath("$dn/$fp/modeloutput")     
-                t1 = single(1.0, cov, eff, vcpi; showprogress=false);
-                v1 = single(2.0, cov, eff, vcpi; showprogress=false);  
+                t1 = single(:suppressive, cov, eff, vcpi; showprogress=false);
+                v1 = single(:vaccine, cov, eff, vcpi; showprogress=false);  
+                b1 = single(:both, cov, eff, vcpi; showprogress=false);  
 
                 CSV.write("$dn/$fp/modeloutput/vac_raw_disease.dat", v1.rd) 
                 CSV.write("$dn/$fp/modeloutput/sup_raw_disease.dat", t1.rd) 
+                CSV.write("$dn/$fp/modeloutput/both_raw_disease.dat", b1.rd) 
                 CSV.write("$dn/$fp/modeloutput/vac_yearavg_disease.dat", v1.ya) 
                 CSV.write("$dn/$fp/modeloutput/sup_yearavg_disease.dat", t1.ya)
+                CSV.write("$dn/$fp/modeloutput/both_yearavg_disease.dat", b1.ya)
                 
                 # process the individial scenarios into one dataframe
-                idf = process_yearly_averages(t1, v1, baseline)        
+                idf = process_yearly_averages(t1, v1, b1, baseline)        
                 CSV.write("$dn/$fp/m$(Int(cov*100)).dat", idf)
 
                 for i = 1:rt ## for the 10 or 20 years post warm-up simulation sums
-                    adf = process_sim_sums(i, t1, v1, baseline)
+                    adf = process_sim_sums(i, t1, v1, b1, baseline)
                     CSV.write("$dn/$fp/q$(Int(cov*100))_yr$i.dat", adf)
                 end
             end
@@ -155,7 +157,7 @@ function scenarios()
     end
 end
 
-function process_yearly_averages(t, v, b)
+function process_yearly_averages(t, v, c, b)
     ## this function takes the results of two "single()" runs and puts together a 
     ## dataframe that combines the two results. 
     year = [i for i = 1:maximum(b.ya.year)]
@@ -163,35 +165,46 @@ function process_yearly_averages(t, v, b)
     cst_b = b.ya.tcost
     cst_t = t.ya.tcost 
     cst_v = v.ya.tcost 
+    cst_c = c.ya.tcost
    
     ds_b = b.ya.avg_ds
     ds_t = t.ya.avg_ds
     ds_v = v.ya.avg_ds
+    ds_c = c.ya.avg_ds
 
     t_b = b.ya.avg_treated
     t_t = t.ya.avg_treated
     t_v = v.ya.avg_treated
+    t_c = c.ya.avg_treated
+
+    v_b = b.ya.avg_vaccinated
+    v_t = t.ya.avg_vaccinated
+    v_v = v.ya.avg_vaccinated
+    v_c = c.ya.avg_vaccinated
 
     i_b = b.ya.avg_new_infections
     i_t = t.ya.avg_new_infections
     i_v = v.ya.avg_new_infections
+    i_c = c.ya.avg_new_infections
 
     p_b = b.ya.avg_prevalence
     p_t = t.ya.avg_prevalence
     p_v = v.ya.avg_prevalence
+    p_c = c.ya.avg_prevalence
 
-    idf = DataFrame(yr=year, cost_supp = cst_t, cost_vacc = cst_v, cost_base = cst_b,
-                             symp_days_supp = ds_t, symp_days_vacc = ds_v, symp_days_base = ds_b,
-                             num_treated_supp = t_t, num_treated_vacc = t_v, num_treated_based = t_b, 
-                             new_infect_supp = i_t, new_infect_vacc = i_v, new_infect_base = i_b,
-                             prev_supp = p_t, prev_vacc = p_v, prev_base = p_b)
+    idf = DataFrame(yr=year, cost_supp = cst_t, cost_vacc = cst_v, cost_both = cst_c, cost_base = cst_b,
+                             symp_days_supp = ds_t, symp_days_vacc = ds_v, symp_days_both=ds_c, symp_days_base = ds_b,
+                             num_treated_supp = t_t, num_treated_vacc = t_v, num_treated_both = t_c, num_treated_base = t_b,
+                             num_vaccinated_supp = v_t, num_vaccinated_vacc = v_v, num_vaccinated_both = v_c, num_vaccinated_base = v_b, 
+                             new_infect_supp = i_t, new_infect_vacc = i_v, new_infect_both = i_c, new_infect_base = i_b,
+                             prev_supp = p_t, prev_vacc = p_v, prev_both = p_c, prev_base = p_b)
 
 
     return idf
 end
 
 
-function process_sim_sums(idx, t, v, b)
+function process_sim_sums(idx, t, v, c, b)
     ## this function takes the results of two "single()" runs and puts together a 
     ## dataframe that combines the two results. 
     sim = [i for i = 1:500]
@@ -199,28 +212,39 @@ function process_sim_sums(idx, t, v, b)
     cst_b = b.sa[idx].sum_cost
     cst_t = t.sa[idx].sum_cost
     cst_v = v.sa[idx].sum_cost
+    cst_c = c.sa[idx].sum_cost
 
     ds_b = b.sa[idx].sum_ds
     ds_t = t.sa[idx].sum_ds
     ds_v = v.sa[idx].sum_ds
+    ds_c = c.sa[idx].sum_ds
 
-    t_b = b.sa[idx].sum_treated
-    t_t = t.sa[idx].sum_treated
-    t_v = v.sa[idx].sum_treated
+    t_b = b.sa[idx].sum_treated     ## column will be zero since no one is treated in baseline
+    t_t = t.sa[idx].sum_treated  
+    t_v = v.sa[idx].sum_treated     ## column will be zero since vaccine scenario dosn't have treatment
+    t_c = c.sa[idx].sum_treated
+
+    v_b = b.sa[idx].sum_vaccinated  ## column will be zero since no one is vaccinated in baseline
+    v_t = t.sa[idx].sum_vaccinated  ## column will be zero since treatment scenario dosn't have vaccine
+    v_v = v.sa[idx].sum_vaccinated
+    v_c = c.sa[idx].sum_vaccinated
 
     i_b = b.sa[idx].sum_new_infections
     i_t = t.sa[idx].sum_new_infections
     i_v = v.sa[idx].sum_new_infections
+    i_c = c.sa[idx].sum_new_infections
 
     p_b = b.sa[idx].sum_prevalence
     p_t = t.sa[idx].sum_prevalence
     p_v = v.sa[idx].sum_prevalence
+    p_c = c.sa[idx].sum_prevalence
     
-    idf = DataFrame(sim=sim, cost_supp = cst_t, cost_vacc = cst_v, cost_base = cst_b,                             
-                             symp_days_supp = ds_t, symp_days_vacc = ds_v, symp_days_base = ds_b,
-                             num_treated_supp = t_t, num_treated_vacc = t_v, num_treated_base = t_b, 
-                             new_infect_supp=i_t, new_infect_vacc=i_v, new_infect_base=i_b,
-                             prev_supp = p_t, prev_vacc = p_v, prev_base = p_b)
+    idf = DataFrame(sim=sim, cost_supp = cst_t, cost_vacc = cst_v, cost_both = cst_c, cost_base = cst_b,                             
+                             symp_days_supp = ds_t, symp_days_vacc = ds_v, symp_days_both = ds_c, symp_days_base = ds_b,
+                             num_treated_supp = t_t, num_treated_vacc = t_v, num_treated_both = t_c, num_treated_base = t_b,
+                             num_vaccinated_supp = v_t, num_vaccinated_vacc = v_v, num_vaccinated_both = v_c, num_vaccinated_base = v_b, 
+                             new_infect_supp=i_t, new_infect_vacc=i_v, new_infect_both=i_c, new_infect_base=i_b,
+                             prev_supp = p_t, prev_vacc = p_v, prev_both = p_c, prev_base = p_b)
     return idf
 end
 
