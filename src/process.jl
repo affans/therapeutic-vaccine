@@ -1,7 +1,34 @@
 ## this file runs the main scenarios and processes the results. 
-## 
+## you may use this file for reproducibility or running your own scenarios.
+struct output
+    ## all data frames are 500 rows (the number of bootstrap replicates) and 20 columns (the number of years)
+    v_newinfects::DataFrame ## vaccine only, bootstrapped icer: cost/number of new infections
+    v_sympdays::DataFrame   ## vaccine only, bootstrapped icer: cost/number of symp days
+    s_newinfects::DataFrame ## suppressive only, bootstrapped icer: cost/number of new infections
+    s_sympdays::DataFrame   ## suppressive only, bootstrapped icer: cost/number of symp days
+    c_newinfects::DataFrame ## combination of suppressive/vaccine
+    c_sympdays::DataFrame   ## combination of suppressive/vaccine
+    function output(num_bootstrap)
+        _names = Symbol.(["yr$i" for i = 1:20])
+        df = DataFrame([Float64 for i = 1:20], _names, num_bootstrap)
+        df .= 0     
+        new(copy(df), copy(df), copy(df), copy(df), copy(df), copy(df))
+    end
+end
 
-function single(scenario = :none, cov = 1.0, efficacy = 0.8, vcpi = 50, 
+struct outputtwo
+    ## all data frames are 500 rows (the number of bootstrap replicates) and 20 columns (the number of years)
+    newinfects::DataFrame ##  bootstrapped icer: cost/number of new infections
+    sympdays::DataFrame   ##  bootstrapped, bootstrapped icer: cost/number of symp days
+    function outputtwo()
+        _names = Symbol.(["yr$i" for i = 1:20])
+        df = DataFrame([Float64 for i = 1:20], _names, 500)
+        df .= 0     
+        new(copy(df), copy(df))
+    end
+end
+
+function single(scenario = :none, supp_cov=0.0, vacc_cov=0.0, efficacy = 0.8, vcpi = 50, 
     warmup_beta=0.016, main_beta=0.07, warmup_time=50, eql_time=100, run_time=20; showprogress=true) 
     ## returns: 
     ## `rd` the raw data: this is all the data collected over sims and years. It will have sims x years rows. 
@@ -9,16 +36,16 @@ function single(scenario = :none, cov = 1.0, efficacy = 0.8, vcpi = 50,
     ## `sa` a vector of 10 DataFrames, each element is the raw data of 10 years post warm-up time for 500 simulations 
     numofsims = 500
     totaltime = warmup_time+eql_time+run_time
-    println("single simulation details: scenario = $scenario, sims: $numofsims, coverage = $cov, efficacy = $efficacy, vcpi = $vcpi")
-    println("... warmup_beta: $(warmup_beta), main_beta: $(main_beta), total time = $totaltime")
+    #println("single simulation details: scen=$scenario, sc=$supp_cov, vc=$vacc_cov, eff=$efficacy, vcpi=$vcpi")
+    #println("... warmup_beta: $(warmup_beta), main_beta: $(main_beta), total time = $totaltime")
 
     if showprogress
         cd = @showprogress pmap(1:numofsims) do x
-            main(x, scenario, cov, efficacy, warmup_beta, main_beta, warmup_time, eql_time, run_time)
+            main(x, scenario, supp_cov, vacc_cov, efficacy, warmup_beta, main_beta, warmup_time, eql_time, run_time)
         end 
     else
         cd = pmap(1:numofsims) do x
-            main(x, scenario, cov, efficacy, warmup_beta, main_beta, warmup_time, eql_time, run_time)
+            main(x, scenario, supp_cov, vacc_cov, efficacy, warmup_beta, main_beta, warmup_time, eql_time, run_time)
         end 
     end
 
@@ -69,6 +96,8 @@ function single(scenario = :none, cov = 1.0, efficacy = 0.8, vcpi = 50,
     rd = join(rd, a, on=[:year, :sim])
 
     ## take the raw data and compute yearly averages
+    ## this takes the averages per year (and not at a cumulative level). 
+    ## eg: "tcost" is the average of costs incurred in a particular year only. 
     ya  = rd |> @groupby(_.year) |> 
                 @map({
                 year = key(_), 
@@ -84,7 +113,7 @@ function single(scenario = :none, cov = 1.0, efficacy = 0.8, vcpi = 50,
                 avg_vaccinated=mean(_.total_vaccinated),  
                 tcost=mean(_.totalcost) }) |> DataFrame
 
-     ## take the raw data and sum up everything at the simulation level PER YEAR
+    ## take the raw data and sum up everything at the simulation level PER YEAR
     stime = warmup_time+eql_time+1
     yrsleft = totaltime - stime
     simavgs = []
@@ -102,10 +131,13 @@ function single(scenario = :none, cov = 1.0, efficacy = 0.8, vcpi = 50,
         sum_treated=sum(_.total_treated), 
         sum_vaccinated=sum(_.total_vaccinated),
         sum_cost = sum(_.totalcost)}) |> DataFrame
+        insertcols!(df_temp, 1, :postyr => (i+1))
         push!(simavgs, df_temp)
     end 
+
+    simavgvcat = vcat([simavgs[i] for i = 1:length(simavgs)]...)
    
-    return (rd=rd, ya=ya, sa=simavgs)
+    return (rd=rd, ya=ya, sa=simavgvcat)
 end
 
 function scenarios()
@@ -118,135 +150,283 @@ function scenarios()
     mkpath("$dn")
     println("saving results to folder: $dn")
 
-    rt = 20 ## number of years post processing to save the q files.
 
     ## run baseline scenario
     baseline = single(:none, 0.0, 0.0, 0.0; showprogress=false)
-    CSV.write("$dn/baseline_raw_disease.dat", baseline.rd)     
-    CSV.write("$dn/baseline_yearavg_disease.dat", baseline.ya) 
+    #CSV.write("$dn/baseline_raw_disease.dat", baseline.rd)     
+    #CSV.write("$dn/baseline_yearavg_disease.dat", baseline.ya) 
     
-    ctr = 1
-    for eff in (0.0, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8)
-        for vcpi in (50, 100, 150, 200, 250, 300)
-            for cov in (0.2, 0.4, 0.5, 0.6, 0.8) 
-                println("working scenario number: $ctr/180")
-                ctr += 1                
-                fp = "eff$(Int(eff*100))_vcpi$(vcpi)_cov$(Int(cov*100))"
-                mkpath("$dn/$fp/modeloutput")     
-                t1 = single(:suppressive, cov, eff, vcpi; showprogress=false);
-                v1 = single(:vaccine, cov, eff, vcpi; showprogress=false);  
-                b1 = single(:both, cov, eff, vcpi; showprogress=false);  
+    alleffs = (0.4, 0.5, 0.6, 0.7, 0.8)
+    allvcpi = (50, 100, 150, 200, 250)
+    allsc = (0.2, 0.4, 0.6, 0.8)
+    allvc = collect(0.10:0.10:1.0)
+    tot_scenarios = length(alleffs) * length(allvcpi) * length(allsc) * length(allvc)
+    pgs = Progress(tot_scenarios, 1)   # minimum update interval: 1 second
 
-                CSV.write("$dn/$fp/modeloutput/vac_raw_disease.dat", v1.rd) 
-                CSV.write("$dn/$fp/modeloutput/sup_raw_disease.dat", t1.rd) 
-                CSV.write("$dn/$fp/modeloutput/both_raw_disease.dat", b1.rd) 
-                CSV.write("$dn/$fp/modeloutput/vac_yearavg_disease.dat", v1.ya) 
-                CSV.write("$dn/$fp/modeloutput/sup_yearavg_disease.dat", t1.ya)
-                CSV.write("$dn/$fp/modeloutput/both_yearavg_disease.dat", b1.ya)
-                
-                # process the individial scenarios into one dataframe
-                idf = process_yearly_averages(t1, v1, b1, baseline)        
-                CSV.write("$dn/$fp/m$(Int(cov*100)).dat", idf)
+    for sc in allsc  ## loop over fixed coverage levels
+        scstr = Int(round(sc*100)) 
+        ## run suppressive only scenario. supp scenario dosn't depend on vc, eff, vcpi.
+        t1 = single(:suppressive, sc, 0, 0, 0; showprogress=false);
+        booted = bootstrap_icer(baseline.sa, t1.sa)              
+        CSV.write("$dn/bt_supp_newinfects_cov$(scstr).dat", booted.newinfects)
+        CSV.write("$dn/bt_supp_sympdays_cov$(scstr).dat", booted.sympdays)
+        for eff in alleffs
+            for vcpi in allvcpi                       
+                efstr = Int(round(eff*100))               
+                v1 = single(:vaccine, sc, sc, eff, vcpi; showprogress=false); 
+                booted = bootstrap_icer(baseline.sa, v1.sa)
+                CSV.write("$dn/bt_vacc_newinfects_eff$(efstr)_cov$(scstr)_vcpi$(vcpi).dat", booted.newinfects)
+                CSV.write("$dn/bt_vacc_sympdays_eff$(efstr)_cov$(scstr)_vcpi$(vcpi).dat", booted.sympdays)
+                for vc in allvc  ## the varying vaccine coverage with the suppressive coverage fixed.                    
+                    vcstr = Int(round(vc*100)) 
+                    b1 = single(:scenA, sc, vc, eff, vcpi; showprogress=false);  
+                    booted = bootstrap_icer(baseline.sa, b1.sa)
+                    CSV.write("$dn/bt_mix_newinfects_eff$(efstr)_cov$(scstr)_vcov$(vcstr)_vcpi$(vcpi).dat", booted.newinfects)
+                    CSV.write("$dn/bt_mix_sympdays_eff$(efstr)_cov$(scstr)_vcoc$(vcstr)_vcpi$(vcpi).dat", booted.sympdays)
+                    #idf = process_ya(t1.ya, v1.ya, b1.ya, baseline.ya) 
+                    #adf = process_sa(t1.sa, v1.sa, b1.sa, baseline.sa) 
+                    
+                    # write the m file
+                    #CSV.write("$dn/m_eff$(efstr)_sv$(scstr)_mv$(vcstr)_vcpi$(vcpi).dat", idf)
+                    #CSV.write("$dn/q_eff$(efstr)_sv$(scstr)_mv$(vcstr)_vcpi$(vcpi).dat", adf)
+                    # calculate the icer values by bootstrapping the data. 
+                    #bt_icers = iceronefunction(adf) 
 
-                for i = 1:rt ## for the 10 or 20 years post warm-up simulation sums
-                    adf = process_sim_sums(i, t1, v1, b1, baseline)
-                    CSV.write("$dn/$fp/q$(Int(cov*100))_yr$i.dat", adf)
-                end
+                    # # write the bootstraped files 
+                    #CSV.write("$dn/b_eff$(efstr)_vacconly_newinfects_sv$(scstr)_mv$(vcstr)_vcpi$(vcpi).dat", bt_icers.v_newinfects)
+                    #CSV.write("$dn/b_eff$(efstr)_vacconly_sympdays_sv$(scstr)_mv$(vcstr)_vcpi$(vcpi).dat", bt_icers.v_sympdays)
+                    ##CSV.write("$dn/b_eff$(efstr)_supponly_newinfects_sv$(scstr)_mv$(vcstr)_vcpi$(vcpi).dat", bt_icers.s_newinfects)
+                    #CSV.write("$dn/b_eff$(efstr)_supponly_sympdays_sv$(scstr)_mv$(vcstr)_vcpi$(vcpi).dat", bt_icers.s_sympdays)
+                    #CSV.write("$dn/b_eff$(efstr)_combinat_newinfects_sv$(scstr)_mv$(vcstr)_vcpi$(vcpi).dat", bt_icers.c_newinfects)
+                    #CSV.write("$dn/b_eff$(efstr)_combinat_sympdays_sv$(scstr)_mv$(vcstr)_vcpi$(vcpi).dat", bt_icers.c_sympdays)
+
+                    next!(pgs; showvalues = [(:eff, eff), (:vcpi,vcpi), (:sc, sc), (:vc, vc)]) #update the progress bar
+                end 
             end
         end
     end
 end
 
-function process_yearly_averages(t, v, c, b)
-    ## this function takes the results of two "single()" runs and puts together a 
-    ## dataframe that combines the two results. 
-    year = [i for i = 1:maximum(b.ya.year)]
+
+function merge_sa_columns(df1, df2; names=["base", "supp"])
+    ## WIP: refactoring of process_yearly_averages
+    newdf = DataFrame()
+    colstoextract = [:postyr, :sim, :sum_cost, :sum_ds, :sum_treated, :sum_vaccinated, :sum_new_infections, :sum_prevalence]
+    for colname in reverse(colstoextract)
+        insertcols!(newdf, 1, Symbol("$(names[1])_$colname") => df1[:, colname])
+        insertcols!(newdf, 1, Symbol("$(names[2])_$colname") => df2[:, colname])                
+    end
+    return newdf
+end
+
+function bootstrap_icer(base, intervention)
+    ## calculates the icer based on IID bootstrapping
+    ## input requires two DataFrames
+
+    ## join the columns needed for cost-effectiveness analysis
+    adf = merge_sa_columns(base, intervention, names=["base", "inter"])
+    btreps = 500      ## number of bootstrap replicates
+    out = outputtwo() ## setup the output dataframe
+
+    for y in 1:20  ## for each of the postyears past the warm up phase         
+        bt = adf |> @filter(_.base_postyr == y) |> DataFrame
+        btdat = dbootdata(bt, numresample=btreps, bootmethod=:iid)
+
+        mcost = [-mean(btdat[i].inter_sum_cost - btdat[i].base_sum_cost) for i = 1:btreps]
+        mnewinfects = [mean(btdat[i].inter_sum_new_infections - btdat[i].base_sum_new_infections) for i = 1:btreps]
+        msympdays = [mean(btdat[i].inter_sum_ds - btdat[i].base_sum_ds) for i = 1:btreps]
+        out.newinfects[!, y] = mcost ./ mnewinfects
+        out.sympdays[!, y] = mcost./ msympdays  
+    end
+    return out
+end
+
+# function process_ya(df_supp, df_vacc, df_comb, df_base)
+#     ## WIP: refactoring of process_yearly_averages
+#     newdf = DataFrame()
+#     year = [i for i = 1:maximum(df_base.year)]
+#     insertcols!(newdf, 1, :year => year)
+#     colstoextract = [:tcost, :avg_ds, :avg_treated, :avg_vaccinated, :avg_new_infections, :avg_prevalence]
+#     for colname in colstoextract
+#         insertcols!(newdf, 2, Symbol("supp_$colname") => df_supp[:, colname])
+#         insertcols!(newdf, 2, Symbol("vacc_$colname") => df_vacc[:, colname])
+#         insertcols!(newdf, 2, Symbol("comb_$colname") => df_comb[:, colname])
+#         insertcols!(newdf, 2, Symbol("base_$colname") => df_base[:, colname])        
+#     end
+#     #df = DataFrame(cst_b, cst_t, cst_v, cst_c)
+#     return newdf
+# end
+
+# function process_sa(df_supp, df_vacc, df_comb, df_base)
+#     ## WIP: refactoring of process_yearly_averages
+#     newdf = DataFrame()
+#     postyear = df_base.postyr
+#     sims = df_base.sim
+#     insertcols!(newdf, 1, :postyear => postyear)
+#     insertcols!(newdf, 2, :sims => sims)
+
+#     colstoextract = [:sum_cost, :sum_ds, :sum_treated, :sum_vaccinated, :sum_new_infections, :sum_prevalence]
+#     for colname in colstoextract
+#         insertcols!(newdf, 3, Symbol("supp_$colname") => df_supp[:, colname])
+#         insertcols!(newdf, 3, Symbol("vacc_$colname") => df_vacc[:, colname])
+#         insertcols!(newdf, 3, Symbol("comb_$colname") => df_comb[:, colname])
+#         insertcols!(newdf, 3, Symbol("base_$colname") => df_base[:, colname])        
+#     end
+#     return newdf
+# end
+
+# ## Bootstrapping code 
+# function iceronefunction(psa)
+#     # adf = [CSV.read("$(qf)_yr$i") for i = 1:20]
+#     bt_reps = 500 ## number of bootstrap replicates
+#     out = output(bt_reps) ## initialize data structure to save
+ 
+#     for y in unique(psa.postyear) 
+#         adf = psa |> @filter(_.postyear == y) |> DataFrame
+#         btdat = dbootdata(adf, numresample=bt_reps, bootmethod=:iid)
+
+#         # calculate vaccine only ICER values from bootstrapped data
+#         mcost = [-mean(btdat[i].vacc_sum_cost - btdat[i].base_sum_cost) for i = 1:bt_reps]
+#         mnewinfects = [mean(btdat[i].vacc_sum_new_infections - btdat[i].base_sum_new_infections) for i = 1:bt_reps]
+#         msympdays = [mean(btdat[i].vacc_sum_ds - btdat[i].base_sum_ds) for i = 1:bt_reps]
+#         icer_vaccine_newinfect = mcost ./ mnewinfects
+#         icer_vaccine_sympdays = mcost./ msympdays
+
+#         # calculate suppressive ICER values from bootstrapped data
+#         mcost = [-mean(btdat[i].supp_sum_cost - btdat[i].base_sum_cost) for i = 1:bt_reps]
+#         mnewinfects = [mean(btdat[i].supp_sum_new_infections - btdat[i].base_sum_new_infections) for i = 1:bt_reps]
+#         msympdays = [mean(btdat[i].supp_sum_ds - btdat[i].base_sum_ds) for i = 1:bt_reps]
+#         icer_supp_newinfect = mcost ./ mnewinfects
+#         icer_supp_sympdays = mcost./ msympdays
+
+#         # calculate suppressive/vaccine combination ICER values from bootstrapped data
+#         mcost = [-mean(btdat[i].comb_sum_cost - btdat[i].base_sum_cost) for i = 1:bt_reps]
+#         mnewinfects = [mean(btdat[i].comb_sum_new_infections - btdat[i].base_sum_new_infections) for i = 1:bt_reps]
+#         msympdays = [mean(btdat[i].comb_sum_ds - btdat[i].base_sum_ds) for i = 1:bt_reps]
+#         icer_comb_newinfect = mcost ./ mnewinfects
+#         icer_comb_sympdays = mcost./ msympdays
+
+#         out.v_newinfects[:, y] = icer_vaccine_newinfect
+#         out.v_sympdays[:, y] = icer_vaccine_sympdays
+#         out.s_newinfects[:, y] = icer_supp_newinfect
+#         out.s_sympdays[:, y] = icer_supp_sympdays
+#         out.c_newinfects[:, y] = icer_comb_newinfect
+#         out.c_sympdays[:, y] = icer_comb_sympdays
+#     end
+#     return out
+# end
+
+# # check if all columns are the same in two dataframes a and b
+# function test_supp_scenarios() 
+#     ## this tests that suppressive scenarios are fixed regarldess of vaccine coverage, efficacy, vcpi. 
+#     ## this will eventually need to be moved to the tests. 
+#     b = single(:suppressive, 40, 0, 0, 0; showprogress=false);
+#     bnames = names(b.rd)
+#     for eff in (0:0.1:0.5)
+#         for vcpi in (50, 100, 150)
+#             for vc in (0:0.10:0.5)
+#                 t1 = single(:suppressive, 40, vc, eff, vcpi; showprogress=false);           
+#                 for n in bnames
+#                     if !(t1.rd[:, n] == b.rd[:, n]) 
+#                         println("colname: $n")
+#                     end
+#                 end             
+#                 println("next sim")   
+#             end
+#         end
+#     end
+# end
+
+
+# function process_yearly_averages(t, v, c, b)
+#     ## this function takes the results of two "single()" runs and puts together a 
+#     ## dataframe that combines the two results. 
+#     year = [i for i = 1:maximum(b.ya.year)]
     
-    cst_b = b.ya.tcost
-    cst_t = t.ya.tcost 
-    cst_v = v.ya.tcost 
-    cst_c = c.ya.tcost
+#     cst_b = b.ya.tcost
+#     cst_t = t.ya.tcost 
+#     cst_v = v.ya.tcost 
+#     cst_c = c.ya.tcost
    
-    ds_b = b.ya.avg_ds
-    ds_t = t.ya.avg_ds
-    ds_v = v.ya.avg_ds
-    ds_c = c.ya.avg_ds
+#     ds_b = b.ya.avg_ds
+#     ds_t = t.ya.avg_ds
+#     ds_v = v.ya.avg_ds
+#     ds_c = c.ya.avg_ds
 
-    t_b = b.ya.avg_treated
-    t_t = t.ya.avg_treated
-    t_v = v.ya.avg_treated
-    t_c = c.ya.avg_treated
+#     t_b = b.ya.avg_treated
+#     t_t = t.ya.avg_treated
+#     t_v = v.ya.avg_treated
+#     t_c = c.ya.avg_treated
 
-    v_b = b.ya.avg_vaccinated
-    v_t = t.ya.avg_vaccinated
-    v_v = v.ya.avg_vaccinated
-    v_c = c.ya.avg_vaccinated
+#     v_b = b.ya.avg_vaccinated
+#     v_t = t.ya.avg_vaccinated
+#     v_v = v.ya.avg_vaccinated
+#     v_c = c.ya.avg_vaccinated
 
-    i_b = b.ya.avg_new_infections
-    i_t = t.ya.avg_new_infections
-    i_v = v.ya.avg_new_infections
-    i_c = c.ya.avg_new_infections
+#     i_b = b.ya.avg_new_infections
+#     i_t = t.ya.avg_new_infections
+#     i_v = v.ya.avg_new_infections
+#     i_c = c.ya.avg_new_infections
 
-    p_b = b.ya.avg_prevalence
-    p_t = t.ya.avg_prevalence
-    p_v = v.ya.avg_prevalence
-    p_c = c.ya.avg_prevalence
+#     p_b = b.ya.avg_prevalence
+#     p_t = t.ya.avg_prevalence
+#     p_v = v.ya.avg_prevalence
+#     p_c = c.ya.avg_prevalence
 
-    idf = DataFrame(yr=year, cost_supp = cst_t, cost_vacc = cst_v, cost_both = cst_c, cost_base = cst_b,
-                             symp_days_supp = ds_t, symp_days_vacc = ds_v, symp_days_both=ds_c, symp_days_base = ds_b,
-                             num_treated_supp = t_t, num_treated_vacc = t_v, num_treated_both = t_c, num_treated_base = t_b,
-                             num_vaccinated_supp = v_t, num_vaccinated_vacc = v_v, num_vaccinated_both = v_c, num_vaccinated_base = v_b, 
-                             new_infect_supp = i_t, new_infect_vacc = i_v, new_infect_both = i_c, new_infect_base = i_b,
-                             prev_supp = p_t, prev_vacc = p_v, prev_both = p_c, prev_base = p_b)
-
-
-    return idf
-end
+#     idf = DataFrame(yr=year, cost_supp = cst_t, cost_vacc = cst_v, cost_both = cst_c, cost_base = cst_b,
+#                              symp_days_supp = ds_t, symp_days_vacc = ds_v, symp_days_both=ds_c, symp_days_base = ds_b,
+#                              num_treated_supp = t_t, num_treated_vacc = t_v, num_treated_both = t_c, num_treated_base = t_b,
+#                              num_vaccinated_supp = v_t, num_vaccinated_vacc = v_v, num_vaccinated_both = v_c, num_vaccinated_base = v_b, 
+#                              new_infect_supp = i_t, new_infect_vacc = i_v, new_infect_both = i_c, new_infect_base = i_b,
+#                              prev_supp = p_t, prev_vacc = p_v, prev_both = p_c, prev_base = p_b)
 
 
-function process_sim_sums(idx, t, v, c, b)
-    ## this function takes the results of two "single()" runs and puts together a 
-    ## dataframe that combines the two results. 
-    sim = [i for i = 1:500]
+#     return idf
+# end
+
+# function process_sim_sums(idx, t, v, c, b)
+#     ## this function takes the results of two "single()" runs and puts together a 
+#     ## dataframe that combines the two results. 
+#     sim = [i for i = 1:500]
     
-    cst_b = b.sa[idx].sum_cost
-    cst_t = t.sa[idx].sum_cost
-    cst_v = v.sa[idx].sum_cost
-    cst_c = c.sa[idx].sum_cost
+#     cst_b = b.sa[idx].sum_cost
+#     cst_t = t.sa[idx].sum_cost
+#     cst_v = v.sa[idx].sum_cost
+#     cst_c = c.sa[idx].sum_cost
 
-    ds_b = b.sa[idx].sum_ds
-    ds_t = t.sa[idx].sum_ds
-    ds_v = v.sa[idx].sum_ds
-    ds_c = c.sa[idx].sum_ds
+#     ds_b = b.sa[idx].sum_ds
+#     ds_t = t.sa[idx].sum_ds
+#     ds_v = v.sa[idx].sum_ds
+#     ds_c = c.sa[idx].sum_ds
 
-    t_b = b.sa[idx].sum_treated     ## column will be zero since no one is treated in baseline
-    t_t = t.sa[idx].sum_treated  
-    t_v = v.sa[idx].sum_treated     ## column will be zero since vaccine scenario dosn't have treatment
-    t_c = c.sa[idx].sum_treated
+#     t_b = b.sa[idx].sum_treated     ## column will be zero since no one is treated in baseline
+#     t_t = t.sa[idx].sum_treated  
+#     t_v = v.sa[idx].sum_treated     ## column will be zero since vaccine scenario dosn't have treatment
+#     t_c = c.sa[idx].sum_treated
 
-    v_b = b.sa[idx].sum_vaccinated  ## column will be zero since no one is vaccinated in baseline
-    v_t = t.sa[idx].sum_vaccinated  ## column will be zero since treatment scenario dosn't have vaccine
-    v_v = v.sa[idx].sum_vaccinated
-    v_c = c.sa[idx].sum_vaccinated
+#     v_b = b.sa[idx].sum_vaccinated  ## column will be zero since no one is vaccinated in baseline
+#     v_t = t.sa[idx].sum_vaccinated  ## column will be zero since treatment scenario dosn't have vaccine
+#     v_v = v.sa[idx].sum_vaccinated
+#     v_c = c.sa[idx].sum_vaccinated
 
-    i_b = b.sa[idx].sum_new_infections
-    i_t = t.sa[idx].sum_new_infections
-    i_v = v.sa[idx].sum_new_infections
-    i_c = c.sa[idx].sum_new_infections
+#     i_b = b.sa[idx].sum_new_infections
+#     i_t = t.sa[idx].sum_new_infections
+#     i_v = v.sa[idx].sum_new_infections
+#     i_c = c.sa[idx].sum_new_infections
 
-    p_b = b.sa[idx].sum_prevalence
-    p_t = t.sa[idx].sum_prevalence
-    p_v = v.sa[idx].sum_prevalence
-    p_c = c.sa[idx].sum_prevalence
+#     p_b = b.sa[idx].sum_prevalence
+#     p_t = t.sa[idx].sum_prevalence
+#     p_v = v.sa[idx].sum_prevalence
+#     p_c = c.sa[idx].sum_prevalence
     
-    idf = DataFrame(sim=sim, cost_supp = cst_t, cost_vacc = cst_v, cost_both = cst_c, cost_base = cst_b,                             
-                             symp_days_supp = ds_t, symp_days_vacc = ds_v, symp_days_both = ds_c, symp_days_base = ds_b,
-                             num_treated_supp = t_t, num_treated_vacc = t_v, num_treated_both = t_c, num_treated_base = t_b,
-                             num_vaccinated_supp = v_t, num_vaccinated_vacc = v_v, num_vaccinated_both = v_c, num_vaccinated_base = v_b, 
-                             new_infect_supp=i_t, new_infect_vacc=i_v, new_infect_both=i_c, new_infect_base=i_b,
-                             prev_supp = p_t, prev_vacc = p_v, prev_both = p_c, prev_base = p_b)
-    return idf
-end
+#     idf = DataFrame(sim=sim, cost_supp = cst_t, cost_vacc = cst_v, cost_both = cst_c, cost_base = cst_b,                             
+#                              symp_days_supp = ds_t, symp_days_vacc = ds_v, symp_days_both = ds_c, symp_days_base = ds_b,
+#                              num_treated_supp = t_t, num_treated_vacc = t_v, num_treated_both = t_c, num_treated_base = t_b,
+#                              num_vaccinated_supp = v_t, num_vaccinated_vacc = v_v, num_vaccinated_both = v_c, num_vaccinated_base = v_b, 
+#                              new_infect_supp=i_t, new_infect_vacc=i_v, new_infect_both=i_c, new_infect_base=i_b,
+#                              prev_supp = p_t, prev_vacc = p_v, prev_both = p_c, prev_base = p_b)
+#     return idf
+# end
 
 ## recursive file moving in linux 
 ## https://stackoverflow.com/questions/8798153/recursively-move-files-of-certain-type-and-keep-their-directory-structure

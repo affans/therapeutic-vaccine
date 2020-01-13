@@ -19,6 +19,7 @@ using Statistics
 using thvaccine
 using UnicodePlots
 using Dates
+using DependentBootstrap
 
 
 #addprocs(SlurmManager(10*32), N=32) ## this throws an error because N = 32. Create PR. 

@@ -17,6 +17,8 @@
     pct_partnerchange = 0.50 ## not implemented yet
     beta = 1.0 #0.01     
     treatment_coverage = 0.5
+    suppressive_coverage = 0.5
+    vaccine_coverage = 0.5
     vaccine_efficacy = 0.5  
 end
 

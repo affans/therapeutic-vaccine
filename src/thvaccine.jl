@@ -16,20 +16,22 @@ const gridsize = 10000
 const P = ModelParameters()
 const humans = Array{Human}(undef, gridsize)
 
-function main(simnumber=1, scenario = :none, cov=0.0, efficacy=0.0, warmup_beta=0.016, main_beta=0.07, 
+
+function main(simnumber=1, scenario = :none, supp_cov=0.0, vacc_cov=0.0, efficacy=0.0, warmup_beta=0.016, main_beta=0.07, 
     warmup_time=50, eql_time=100, run_time=10) 
     Random.seed!(simnumber) 
     #println(simnumber)
 
     ## error checks 
     warmup_beta + main_beta == 0.0 && error("β is set to zero. No disease will happen")
-    scenario ∉ (:none, :suppressive, :vaccine, :both) && error("not a valid scenario")
+    scenario ∉ (:none, :suppressive, :vaccine, :scenA) && error("not a valid scenario")
     (warmup_time + eql_time + run_time) == 0 && error("simulation time is set to zero")
 
 
     ## set the simulation properties
     P.sim_time = (warmup_time + eql_time + run_time)
-    P.treatment_coverage = cov
+    P.suppressive_coverage = supp_cov
+    P.vaccine_coverage = vacc_cov
     P.vaccine_efficacy = efficacy
 
     # initialize data collection
@@ -65,7 +67,7 @@ function main(simnumber=1, scenario = :none, cov=0.0, efficacy=0.0, warmup_beta=
     ## give it an extra year so the counting process smoothes itself out
     for yr = (t2):t3     
         dat.disease[yr, 1:end] .= transmission(dat, yr)        
-        dat.treatment[yr, 1:end] .= give_treatment(scenario, P.treatment_coverage)
+        dat.treatment[yr, 1:end] .= give_treatment(scenario)
         record_prev(dat, yr) ## record data before system changes at end of year  
         dat.agedist[yr, [:left, :left_ct, :left_treated]] .= age()
         create_partners()
@@ -527,7 +529,7 @@ function _mynaturalhistory(x::Human)
 end
 export _mynaturalhistory
 
-function give_treatment(scenario, coverage)
+function give_treatment(scenario)
     ## if an individual gets sick during the year, their treatment really starts right away
     ## but in our model, it would get recorded in the following year
     ## this is because function runs at the end of the for loop. 
@@ -535,22 +537,22 @@ function give_treatment(scenario, coverage)
     tot_vacc = 0 
 
     if scenario == :suppressive
-        tot_supp = suppressive_treatment(coverage)
+        tot_supp = suppressive_treatment_only(P.suppressive_coverage)
     end
 
     if scenario == :vaccine
-        tot_vacc = vaccine(coverage)
+        tot_vacc = vaccine_only(P.vaccine_coverage)
     end
 
-    if scenario == :both
-        tot_supp, tot_vacc = both_treatments(coverage)
+    if scenario == :scenA
+        tot_supp, tot_vacc = scenA(P.suppressive_coverage, P.vaccine_coverage)
     end
 
     return tot_supp, tot_vacc
 end    
 export give_treatment
 
-function suppressive_treatment(coverage)    
+function suppressive_treatment_only(coverage)    
     ## if an individual gets sick during the year, their treatment really starts right away
     ## but in our model, it would get recorded in the following year
     ## this is because function runs at the end of the for loop. 
@@ -570,9 +572,9 @@ function suppressive_treatment(coverage)
     end
     return cnt
 end
-export suppressive_treatment
+export suppressive_treatment_only
 
-function vaccine(coverage)
+function vaccine_only(coverage)
     # go through all humans, if infected check whether it's a new infection 
     # or whether the person has been vaccinated before,
     # mark them under vaccinated treatment
@@ -588,19 +590,21 @@ function vaccine(coverage)
     end
     return cnt   
 end
-export vaccine
+export vaccine_only
 
-function both_treatments(coverage)
-    vcnt = 0 
-    scnt = 0 
+function scenA(supp_cov, vacc_cov)
+    # in this scenario, individuals have some suppressive coverage, 
+    # out of the remaining ones, there is some vaccine coverage. 
+    # example, if 38% is suppressive, then vaccination coverage is vacc_cov% of the remaining 62%. 
+    vcnt = 0; scnt = 0 
     for x in humans
         if x.health == INF 
-
             ## if infected person is already under a regime, keep them on same regime
             if x.vaccinated 
                 vcnt += 1 
             end
 
+            ## if person is already treated, count them as another year of suppressive
             if x.treated
                 scnt += 1
             end
@@ -610,23 +614,21 @@ function both_treatments(coverage)
                 error("infected person is both treated and vaccinated, can not happen")
             end
 
-            # if infected person is not vaccinated/treated, check for treatment
-            if !(x.vaccinated || x.treated)
-                if (rand() < coverage && x.newlyinfected == true) 
-                    if rand() < 0.5 
-                        x.vaccinated = true 
-                        vcnt += 1 
-                    else 
-                        x.treated = true
-                        scnt += 1
+            # if infected person is not vaccinated/treated, and person is newly infected
+            # see if they will get suppressive
+            if !(x.vaccinated || x.treated) && x.newlyinfected
+                if rand() < supp_cov 
+                    x.treated = true
+                    scnt += 1
+                else
+                    if rand() < vacc_cov 
+                        x.vaccinated = true
+                        vcnt += 1
                     end
-                end 
+                end
             end                 
         end
     end
-
     return scnt, vcnt
 end
-
-
 end # module
