@@ -1,26 +1,8 @@
-## this file runs the main scenarios and processes the results. 
-## you may use this file for reproducibility or running your own scenarios.
-struct output
-    ## all data frames are 500 rows (the number of bootstrap replicates) and 20 columns (the number of years)
-    v_newinfects::DataFrame ## vaccine only, bootstrapped icer: cost/number of new infections
-    v_sympdays::DataFrame   ## vaccine only, bootstrapped icer: cost/number of symp days
-    s_newinfects::DataFrame ## suppressive only, bootstrapped icer: cost/number of new infections
-    s_sympdays::DataFrame   ## suppressive only, bootstrapped icer: cost/number of symp days
-    c_newinfects::DataFrame ## combination of suppressive/vaccine
-    c_sympdays::DataFrame   ## combination of suppressive/vaccine
-    function output(num_bootstrap)
-        _names = Symbol.(["yr$i" for i = 1:20])
-        df = DataFrame([Float64 for i = 1:20], _names, num_bootstrap)
-        df .= 0     
-        new(copy(df), copy(df), copy(df), copy(df), copy(df), copy(df))
-    end
-end
-
-struct outputtwo
+struct data_output
     ## all data frames are 500 rows (the number of bootstrap replicates) and 20 columns (the number of years)
     newinfects::DataFrame ##  bootstrapped icer: cost/number of new infections
     sympdays::DataFrame   ##  bootstrapped, bootstrapped icer: cost/number of symp days
-    function outputtwo()
+    function data_output()
         _names = Symbol.(["yr$i" for i = 1:20])
         df = DataFrame([Float64 for i = 1:20], _names, 500)
         df .= 0     
@@ -182,7 +164,7 @@ function scenarios()
                     b1 = single(:scenA, sc, vc, eff, vcpi; showprogress=false);  
                     booted = bootstrap_icer(baseline.sa, b1.sa)
                     CSV.write("$dn/bt_mix_newinfects_eff$(efstr)_cov$(scstr)_vcov$(vcstr)_vcpi$(vcpi).dat", booted.newinfects)
-                    CSV.write("$dn/bt_mix_sympdays_eff$(efstr)_cov$(scstr)_vcoc$(vcstr)_vcpi$(vcpi).dat", booted.sympdays)
+                    CSV.write("$dn/bt_mix_sympdays_eff$(efstr)_cov$(scstr)_vcov$(vcstr)_vcpi$(vcpi).dat", booted.sympdays)
                     #idf = process_ya(t1.ya, v1.ya, b1.ya, baseline.ya) 
                     #adf = process_sa(t1.sa, v1.sa, b1.sa, baseline.sa) 
                     
@@ -226,7 +208,7 @@ function bootstrap_icer(base, intervention)
     ## join the columns needed for cost-effectiveness analysis
     adf = merge_sa_columns(base, intervention, names=["base", "inter"])
     btreps = 500      ## number of bootstrap replicates
-    out = outputtwo() ## setup the output dataframe
+    out = data_output() ## setup the output dataframe
 
     for y in 1:20  ## for each of the postyears past the warm up phase         
         bt = adf |> @filter(_.base_postyr == y) |> DataFrame
@@ -241,192 +223,25 @@ function bootstrap_icer(base, intervention)
     return out
 end
 
-# function process_ya(df_supp, df_vacc, df_comb, df_base)
-#     ## WIP: refactoring of process_yearly_averages
-#     newdf = DataFrame()
-#     year = [i for i = 1:maximum(df_base.year)]
-#     insertcols!(newdf, 1, :year => year)
-#     colstoextract = [:tcost, :avg_ds, :avg_treated, :avg_vaccinated, :avg_new_infections, :avg_prevalence]
-#     for colname in colstoextract
-#         insertcols!(newdf, 2, Symbol("supp_$colname") => df_supp[:, colname])
-#         insertcols!(newdf, 2, Symbol("vacc_$colname") => df_vacc[:, colname])
-#         insertcols!(newdf, 2, Symbol("comb_$colname") => df_comb[:, colname])
-#         insertcols!(newdf, 2, Symbol("base_$colname") => df_base[:, colname])        
-#     end
-#     #df = DataFrame(cst_b, cst_t, cst_v, cst_c)
-#     return newdf
-# end
-
-# function process_sa(df_supp, df_vacc, df_comb, df_base)
-#     ## WIP: refactoring of process_yearly_averages
-#     newdf = DataFrame()
-#     postyear = df_base.postyr
-#     sims = df_base.sim
-#     insertcols!(newdf, 1, :postyear => postyear)
-#     insertcols!(newdf, 2, :sims => sims)
-
-#     colstoextract = [:sum_cost, :sum_ds, :sum_treated, :sum_vaccinated, :sum_new_infections, :sum_prevalence]
-#     for colname in colstoextract
-#         insertcols!(newdf, 3, Symbol("supp_$colname") => df_supp[:, colname])
-#         insertcols!(newdf, 3, Symbol("vacc_$colname") => df_vacc[:, colname])
-#         insertcols!(newdf, 3, Symbol("comb_$colname") => df_comb[:, colname])
-#         insertcols!(newdf, 3, Symbol("base_$colname") => df_base[:, colname])        
-#     end
-#     return newdf
-# end
-
-# ## Bootstrapping code 
-# function iceronefunction(psa)
-#     # adf = [CSV.read("$(qf)_yr$i") for i = 1:20]
-#     bt_reps = 500 ## number of bootstrap replicates
-#     out = output(bt_reps) ## initialize data structure to save
- 
-#     for y in unique(psa.postyear) 
-#         adf = psa |> @filter(_.postyear == y) |> DataFrame
-#         btdat = dbootdata(adf, numresample=bt_reps, bootmethod=:iid)
-
-#         # calculate vaccine only ICER values from bootstrapped data
-#         mcost = [-mean(btdat[i].vacc_sum_cost - btdat[i].base_sum_cost) for i = 1:bt_reps]
-#         mnewinfects = [mean(btdat[i].vacc_sum_new_infections - btdat[i].base_sum_new_infections) for i = 1:bt_reps]
-#         msympdays = [mean(btdat[i].vacc_sum_ds - btdat[i].base_sum_ds) for i = 1:bt_reps]
-#         icer_vaccine_newinfect = mcost ./ mnewinfects
-#         icer_vaccine_sympdays = mcost./ msympdays
-
-#         # calculate suppressive ICER values from bootstrapped data
-#         mcost = [-mean(btdat[i].supp_sum_cost - btdat[i].base_sum_cost) for i = 1:bt_reps]
-#         mnewinfects = [mean(btdat[i].supp_sum_new_infections - btdat[i].base_sum_new_infections) for i = 1:bt_reps]
-#         msympdays = [mean(btdat[i].supp_sum_ds - btdat[i].base_sum_ds) for i = 1:bt_reps]
-#         icer_supp_newinfect = mcost ./ mnewinfects
-#         icer_supp_sympdays = mcost./ msympdays
-
-#         # calculate suppressive/vaccine combination ICER values from bootstrapped data
-#         mcost = [-mean(btdat[i].comb_sum_cost - btdat[i].base_sum_cost) for i = 1:bt_reps]
-#         mnewinfects = [mean(btdat[i].comb_sum_new_infections - btdat[i].base_sum_new_infections) for i = 1:bt_reps]
-#         msympdays = [mean(btdat[i].comb_sum_ds - btdat[i].base_sum_ds) for i = 1:bt_reps]
-#         icer_comb_newinfect = mcost ./ mnewinfects
-#         icer_comb_sympdays = mcost./ msympdays
-
-#         out.v_newinfects[:, y] = icer_vaccine_newinfect
-#         out.v_sympdays[:, y] = icer_vaccine_sympdays
-#         out.s_newinfects[:, y] = icer_supp_newinfect
-#         out.s_sympdays[:, y] = icer_supp_sympdays
-#         out.c_newinfects[:, y] = icer_comb_newinfect
-#         out.c_sympdays[:, y] = icer_comb_sympdays
-#     end
-#     return out
-# end
-
-# # check if all columns are the same in two dataframes a and b
-# function test_supp_scenarios() 
-#     ## this tests that suppressive scenarios are fixed regarldess of vaccine coverage, efficacy, vcpi. 
-#     ## this will eventually need to be moved to the tests. 
-#     b = single(:suppressive, 40, 0, 0, 0; showprogress=false);
-#     bnames = names(b.rd)
-#     for eff in (0:0.1:0.5)
-#         for vcpi in (50, 100, 150)
-#             for vc in (0:0.10:0.5)
-#                 t1 = single(:suppressive, 40, vc, eff, vcpi; showprogress=false);           
-#                 for n in bnames
-#                     if !(t1.rd[:, n] == b.rd[:, n]) 
-#                         println("colname: $n")
-#                     end
-#                 end             
-#                 println("next sim")   
-#             end
-#         end
-#     end
-# end
-
-
-# function process_yearly_averages(t, v, c, b)
-#     ## this function takes the results of two "single()" runs and puts together a 
-#     ## dataframe that combines the two results. 
-#     year = [i for i = 1:maximum(b.ya.year)]
-    
-#     cst_b = b.ya.tcost
-#     cst_t = t.ya.tcost 
-#     cst_v = v.ya.tcost 
-#     cst_c = c.ya.tcost
-   
-#     ds_b = b.ya.avg_ds
-#     ds_t = t.ya.avg_ds
-#     ds_v = v.ya.avg_ds
-#     ds_c = c.ya.avg_ds
-
-#     t_b = b.ya.avg_treated
-#     t_t = t.ya.avg_treated
-#     t_v = v.ya.avg_treated
-#     t_c = c.ya.avg_treated
-
-#     v_b = b.ya.avg_vaccinated
-#     v_t = t.ya.avg_vaccinated
-#     v_v = v.ya.avg_vaccinated
-#     v_c = c.ya.avg_vaccinated
-
-#     i_b = b.ya.avg_new_infections
-#     i_t = t.ya.avg_new_infections
-#     i_v = v.ya.avg_new_infections
-#     i_c = c.ya.avg_new_infections
-
-#     p_b = b.ya.avg_prevalence
-#     p_t = t.ya.avg_prevalence
-#     p_v = v.ya.avg_prevalence
-#     p_c = c.ya.avg_prevalence
-
-#     idf = DataFrame(yr=year, cost_supp = cst_t, cost_vacc = cst_v, cost_both = cst_c, cost_base = cst_b,
-#                              symp_days_supp = ds_t, symp_days_vacc = ds_v, symp_days_both=ds_c, symp_days_base = ds_b,
-#                              num_treated_supp = t_t, num_treated_vacc = t_v, num_treated_both = t_c, num_treated_base = t_b,
-#                              num_vaccinated_supp = v_t, num_vaccinated_vacc = v_v, num_vaccinated_both = v_c, num_vaccinated_base = v_b, 
-#                              new_infect_supp = i_t, new_infect_vacc = i_v, new_infect_both = i_c, new_infect_base = i_b,
-#                              prev_supp = p_t, prev_vacc = p_v, prev_both = p_c, prev_base = p_b)
-
-
-#     return idf
-# end
-
-# function process_sim_sums(idx, t, v, c, b)
-#     ## this function takes the results of two "single()" runs and puts together a 
-#     ## dataframe that combines the two results. 
-#     sim = [i for i = 1:500]
-    
-#     cst_b = b.sa[idx].sum_cost
-#     cst_t = t.sa[idx].sum_cost
-#     cst_v = v.sa[idx].sum_cost
-#     cst_c = c.sa[idx].sum_cost
-
-#     ds_b = b.sa[idx].sum_ds
-#     ds_t = t.sa[idx].sum_ds
-#     ds_v = v.sa[idx].sum_ds
-#     ds_c = c.sa[idx].sum_ds
-
-#     t_b = b.sa[idx].sum_treated     ## column will be zero since no one is treated in baseline
-#     t_t = t.sa[idx].sum_treated  
-#     t_v = v.sa[idx].sum_treated     ## column will be zero since vaccine scenario dosn't have treatment
-#     t_c = c.sa[idx].sum_treated
-
-#     v_b = b.sa[idx].sum_vaccinated  ## column will be zero since no one is vaccinated in baseline
-#     v_t = t.sa[idx].sum_vaccinated  ## column will be zero since treatment scenario dosn't have vaccine
-#     v_v = v.sa[idx].sum_vaccinated
-#     v_c = c.sa[idx].sum_vaccinated
-
-#     i_b = b.sa[idx].sum_new_infections
-#     i_t = t.sa[idx].sum_new_infections
-#     i_v = v.sa[idx].sum_new_infections
-#     i_c = c.sa[idx].sum_new_infections
-
-#     p_b = b.sa[idx].sum_prevalence
-#     p_t = t.sa[idx].sum_prevalence
-#     p_v = v.sa[idx].sum_prevalence
-#     p_c = c.sa[idx].sum_prevalence
-    
-#     idf = DataFrame(sim=sim, cost_supp = cst_t, cost_vacc = cst_v, cost_both = cst_c, cost_base = cst_b,                             
-#                              symp_days_supp = ds_t, symp_days_vacc = ds_v, symp_days_both = ds_c, symp_days_base = ds_b,
-#                              num_treated_supp = t_t, num_treated_vacc = t_v, num_treated_both = t_c, num_treated_base = t_b,
-#                              num_vaccinated_supp = v_t, num_vaccinated_vacc = v_v, num_vaccinated_both = v_c, num_vaccinated_base = v_b, 
-#                              new_infect_supp=i_t, new_infect_vacc=i_v, new_infect_both=i_c, new_infect_base=i_b,
-#                              prev_supp = p_t, prev_vacc = p_v, prev_both = p_c, prev_base = p_b)
-#     return idf
-# end
+function test_suppressive_scenarios() 
+    ## this tests that suppressive scenarios are fixed regarldess of vaccine coverage, efficacy, vcpi parameters. 
+    ## this will eventually need to be moved to unit tests. 
+    b = single(:suppressive, 40, 0, 0, 0; showprogress=false);
+    bnames = names(b.rd)
+    for eff in (0:0.1:0.5)
+        for vcpi in (50, 100, 150)
+            for vc in (0:0.10:0.5)
+                t1 = single(:suppressive, 40, vc, eff, vcpi; showprogress=false);           
+                for n in bnames
+                    if !(t1.rd[:, n] == b.rd[:, n]) 
+                        println("colname: $n")
+                    end
+                end             
+                println("next sim")   
+            end
+        end
+    end
+end
 
 ## recursive file moving in linux 
 ## https://stackoverflow.com/questions/8798153/recursively-move-files-of-certain-type-and-keep-their-directory-structure
